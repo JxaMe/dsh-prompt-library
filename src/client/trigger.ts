@@ -1,6 +1,7 @@
 import type { InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { getPromptDetail, listPrompts, sortSummaries } from './prompts.js'
-import type { FetchImpl, PromptSummary } from './prompts.js'
+import type { FetchImpl } from './prompts.js'
+import { matchPrompt } from './search.js'
 
 /** 空查询时每组最多展示行数（有查询不过滤数量，越细越少）。 */
 const BARE_QUERY_LIMIT = 20
@@ -26,12 +27,6 @@ function decodeBody(value: string | undefined): string | undefined {
   }
 }
 
-function matches(row: PromptSummary, query: string): boolean {
-  const q = query.trim().toLowerCase()
-  if (q === '') return true
-  return row.name.toLowerCase().includes(q) || row.description.toLowerCase().includes(q)
-}
-
 function firstLine(text: string, maxChars: number): string {
   const line = text.split('\n', 1)[0] ?? ''
   return line.length <= maxChars ? line : `${line.slice(0, maxChars)}…`
@@ -49,7 +44,7 @@ export function promptTriggerSource(fetchImpl: FetchImpl = globalThis.fetch): In
     name: 'prompts',
     async candidates(_session, { query, signal }) {
       const summaries = await listPrompts(fetchImpl, { signal })
-      const matched = sortSummaries(summaries.filter((row) => matches(row, query)))
+      const matched = sortSummaries(summaries.filter((row) => matchPrompt(row, query)))
       const capped = query.trim() === '' ? matched.slice(0, BARE_QUERY_LIMIT) : matched
       const details = await Promise.all(capped.map((row) => getPromptDetail(fetchImpl, row.name, { signal })))
       if (signal.aborted) return []

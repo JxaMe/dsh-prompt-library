@@ -128,6 +128,18 @@ describe('runPromptCommand', () => {
       .toEqual({ kind: 'error', text: 'prompt "plain" takes no variables, got: k' })
   })
 
+  test('send 选项外的值拒绝并列出候选', async () => {
+    const lib = library()
+    await lib.add({ name: 'review', description: '', body: '框架 {{fw:react|vue}}' })
+    let sent: string | undefined
+    expect(await runPromptCommand(lib, { rawInput: ' send review fw=svelte ', send: (body) => { sent = body } }))
+      .toEqual({ kind: 'error', text: 'invalid value for "fw": "svelte" must be one of: react, vue' })
+    expect(sent).toBeUndefined()
+    const ok = await runPromptCommand(lib, { rawInput: ' send review fw=vue ', send: (body) => { sent = body } })
+    expect(ok).toEqual({ kind: 'success', text: 'sent "review"' })
+    expect(sent).toBe('框架 vue')
+  })
+
   test('send 成功记一次使用', async () => {
     const lib = library()
     await lib.add({ name: 'deploy', description: '', body: '正文' })

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { extractVariables, renderTemplate } from '../src/template.js'
+import { extractVariables, extractVariableSpecs, renderTemplate } from '../src/template.js'
 
 describe('extractVariables', () => {
   test('无占位返回空', () => {
@@ -32,5 +32,28 @@ describe('renderTemplate', () => {
   test('缺谁报谁，多给的忽略', () => {
     expect(renderTemplate('{{a}} 和 {{b}}', { a: '1', extra: 'x' }))
       .toEqual({ ok: false, missing: ['b'] })
+  })
+})
+
+describe('extractVariableSpecs', () => {
+  test('无选项即空数组，与旧提取一致', () => {
+    expect(extractVariableSpecs('看 {{pr}} 的 {{focus}}')).toEqual([
+      { name: 'pr', options: [] },
+      { name: 'focus', options: [] },
+    ])
+  })
+
+  test('冒号后按竖线切选项，空白忽略，空项丢掉', () => {
+    expect(extractVariableSpecs('框架 {{fw:react | vue|svelte }}')).toEqual([
+      { name: 'fw', options: ['react', 'vue', 'svelte'] },
+    ])
+    expect(extractVariableSpecs('{{x:}} {{y: | }}')).toEqual([
+      { name: 'x', options: [] },
+      { name: 'y', options: [] },
+    ])
+  })
+
+  test('重复变量以首次为准', () => {
+    expect(extractVariableSpecs('{{a:1|2}} 和 {{a}}')).toEqual([{ name: 'a', options: ['1', '2'] }])
   })
 })

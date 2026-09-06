@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-manager",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "DSH user prompt library: save, list and send reusable prompts via /p",
   "type": "module",
   "main": "lib/index.js",
@@ -23,7 +23,9 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.host.json && tsc --noEmit -p tsconfig.client.json",
-    "build": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && tsc -p tsconfig.build-client.json && tsdown"
+    "build": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && tsc -p tsconfig.build-client.json && tsdown",
+    "audit:bundle": "node scripts/audit-bundle.mjs",
+    "ship": "npm run build && npm run audit:bundle && npm pack"
   },
   "engines": {
     "node": ">=22"
@@ -42,6 +44,7 @@
     }
   },
   "dependencies": {
+    "pinyin-match": "1.2.10",
     "zod": "4.4.3"
   },
   "peerDependencies": {

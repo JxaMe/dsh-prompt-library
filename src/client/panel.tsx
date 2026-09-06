@@ -3,11 +3,13 @@ import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } fr
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { PROMPT_NAME_RE } from '../library.js'
-import { extractVariables, renderTemplate } from '../template.js'
+import { extractVariableSpecs, renderTemplate } from '../template.js'
+import type { VariableSpec } from '../template.js'
 import { appendToDraft } from './draft.js'
 import type { DraftInput } from './draft.js'
 import { submitSendLine } from './decorate.js'
 import { addPrompt, buildSendLine, exportLibrary, getHistory, getPromptDetail, importLibrary, listPrompts, removePrompt, renamePrompt, restoreVersion, sortSummaries, updatePrompt } from './prompts.js'
+import { matchPrompt } from './search.js'
 import type { PromptSummary, VersionRow } from './prompts.js'
 import type { PromptTabDescriptor } from './sidebar-faces.js'
 import type { PanelHost } from './sidebar-faces.js'
@@ -45,7 +47,7 @@ function PromptPanel(props: PanelHost): ReactNode {
   const [editDescription, setEditDescription] = useState('')
   const [editBody, setEditBody] = useState('')
   const [sending, setSending] = useState<string | null>(null)
-  const [sendVars, setSendVars] = useState<readonly string[]>([])
+  const [sendSpecs, setSendSpecs] = useState<readonly VariableSpec[]>([])
   const [sendValues, setSendValues] = useState<Readonly<Record<string, string>>>({})
   const [menuOf, setMenuOf] = useState<string | null>(null)
   const [sendBody, setSendBody] = useState('')
@@ -54,12 +56,9 @@ function PromptPanel(props: PanelHost): ReactNode {
   const [query, setQuery] = useState('')
   const [notice, setNotice] = useState('')
 
-  /** 可见行：先按查询过滤（名称+说明，大小写不敏感），再按常用排序。 */
+  /** 可见行：先按查询过滤（名称+说明，子串或拼音），再按常用排序。 */
   function visibleItems(): PromptSummary[] {
-    const q = query.trim().toLowerCase()
-    const filtered = q === ''
-      ? items
-      : items.filter((item) => item.name.toLowerCase().includes(q) || item.description.toLowerCase().includes(q))
+    const filtered = query.trim() === '' ? items : items.filter((item) => matchPrompt(item, query))
     return sortSummaries(filtered)
   }
 
@@ -234,16 +233,16 @@ function PromptPanel(props: PanelHost): ReactNode {
     setError('')
     try {
       const detail = await getPromptDetail(globalThis.fetch, target)
-      const variables = extractVariables(detail.body)
-      if (variables.length === 0) {
+      const specs = extractVariableSpecs(detail.body)
+      if (specs.length === 0) {
         await submit(target, {})
         return
       }
       setEditing(null)
       setRenaming(null)
       setSending(target)
-      setSendVars(variables)
-      setSendValues(Object.fromEntries(variables.map((name) => [name, ''])))
+      setSendSpecs(specs)
+      setSendValues(Object.fromEntries(specs.map((spec) => [spec.name, spec.options[0] ?? ''])))
       setSendBody(detail.body)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -440,17 +439,32 @@ function PromptPanel(props: PanelHost): ReactNode {
           )}
           {sending === item.name && (
             <div style={{ flexBasis: '100%', padding: '8px 0 4px 12px' }}>
-              {sendVars.map((variable) => (
-                <div key={variable} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                  <code style={{ ...chip, minWidth: 80 }}>{variable}</code>
-                  <input
-                    style={input}
-                    value={sendValues[variable] ?? ''}
-                    disabled={busy}
-                    onChange={(e) => setSendValues({ ...sendValues, [variable]: e.currentTarget.value })}
-                    onKeyDown={onEnter(() => void submitForm(item))}
-                    placeholder={`输入 ${variable}`}
-                  />
+              {sendSpecs.map((spec) => (
+                <div key={spec.name} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <code style={{ ...chip, minWidth: 80 }}>{spec.name}</code>
+                  {spec.options.length > 0
+                    ? (
+                      <select
+                        style={input}
+                        value={sendValues[spec.name] ?? ''}
+                        disabled={busy}
+                        onChange={(e) => setSendValues({ ...sendValues, [spec.name]: e.currentTarget.value })}
+                      >
+                        {spec.options.map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    )
+                    : (
+                      <input
+                        style={input}
+                        value={sendValues[spec.name] ?? ''}
+                        disabled={busy}
+                        onChange={(e) => setSendValues({ ...sendValues, [spec.name]: e.currentTarget.value })}
+                        onKeyDown={onEnter(() => void submitForm(item))}
+                        placeholder={`输入 ${spec.name}`}
+                      />
+                    )}
                 </div>
               ))}
               {(() => {

@@ -3,7 +3,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { PromptLibrary } from './library.js'
 import { PromptLibraryError } from './errors.js'
 import { PROMPT_USAGE, parsePromptArgs } from './parse.js'
-import { extractVariables, renderTemplate } from './template.js'
+import { extractVariables, extractVariableSpecs, renderTemplate } from './template.js'
 import type { UsageStats } from './usage.js'
 
 /**
@@ -105,6 +105,12 @@ export async function runPromptCommand(
     }
     const unknown = Object.keys(command.values).filter((key) => !variables.includes(key))
     if (unknown.length > 0) return { kind: 'error', text: `unknown variables for "${command.name}": ${unknown.join(', ')}` }
+    for (const spec of extractVariableSpecs(record.body)) {
+      const value = command.values[spec.name]
+      if (value !== undefined && spec.options.length > 0 && !spec.options.includes(value)) {
+        return { kind: 'error', text: `invalid value for "${spec.name}": "${value}" must be one of: ${spec.options.join(', ')}` }
+      }
+    }
     const rendered = renderTemplate(record.body, command.values)
     if (!rendered.ok) {
       const hint = rendered.missing.map((name) => `${name}=...`).join(' ')
