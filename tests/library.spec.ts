@@ -2,10 +2,12 @@ import { describe, expect, test } from 'vitest'
 import { PromptLibrary } from '../src/library.js'
 import { PromptLibraryError } from '../src/errors.js'
 import type { PromptRecord, PromptVault } from '../src/vault.js'
+import { VersionStore } from '../src/versions.js'
 import { MemoryVault } from './support/vault-memory.js'
+import { MemoryVersions } from './support/versions-memory.js'
 
 function library() {
-  return new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 10 })
+  return new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 10, versionHistory: 20 })
 }
 
 describe('PromptLibrary', () => {
@@ -54,7 +56,7 @@ describe('PromptLibrary', () => {
   })
 
   test('存满后拒绝新增，但重名仍报重名', async () => {
-    const lib = new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 2 })
+    const lib = new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 2, versionHistory: 20 })
     await lib.add({ name: 'a', description: '', body: '甲' })
     await lib.add({ name: 'b', description: '', body: '乙' })
     const full = await lib.add({ name: 'c', description: '', body: '丙' }).catch((error: unknown) => error)
@@ -126,7 +128,7 @@ describe('PromptLibrary', () => {
       delete: () => Promise.reject(new Error('disk gone')),
       all: () => Promise.reject(new Error('disk gone')),
     }
-    const lib = new PromptLibrary(broken, { maxNameLength: 64, maxBodyChars: 100, maxCount: 10 })
+    const lib = new PromptLibrary(broken, { maxNameLength: 64, maxBodyChars: 100, maxCount: 10, versionHistory: 20 })
     await expect(lib.list()).rejects.toThrow('disk gone')
     await expect(lib.add({ name: 'a', description: '', body: '甲' })).rejects.toThrow('disk gone')
   })
@@ -156,12 +158,50 @@ describe('importMany', () => {
   })
 
   test('满额后剩余全跳过', async () => {
-    const lib = new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 1 })
+    const lib = new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 1, versionHistory: 20 })
     const result = await lib.importMany([
       { name: 'a', body: '甲' },
       { name: 'b', body: '乙' },
     ])
     expect(result.added).toEqual(['a'])
     expect(result.skipped).toEqual([{ name: 'b', reason: 'prompt library is full (limit is 1)' }])
+  })
+})
+
+describe('versions', () => {
+  function versioned(cap = 20) {
+    const vault = new MemoryVault()
+    const versions = new VersionStore(new MemoryVersions(), () => 1000)
+    const lib = new PromptLibrary(
+      vault,
+      { maxNameLength: 64, maxBodyChars: 100, maxCount: 10, versionHistory: cap },
+      versions,
+    )
+    return { lib, versions }
+  }
+
+  test('改内容存改前快照，可回滚', async () => {
+    const { lib, versions } = versioned()
+    await lib.add({ name: 'a', description: '说', body: 'v1' })
+    await lib.update('a', { body: 'v2' })
+    expect(await versions.history('a')).toEqual([
+      { prompt: 'a', rev: 1, description: '说', body: 'v1', at: 1000 },
+    ])
+  })
+
+  test('cap 为 0 不存任何版本', async () => {
+    const { lib, versions } = versioned(0)
+    await lib.add({ name: 'a', description: '', body: 'v1' })
+    await lib.update('a', { body: 'v2' })
+    expect(await versions.history('a')).toEqual([])
+  })
+
+  test('改名连版本一起搬', async () => {
+    const { lib, versions } = versioned()
+    await lib.add({ name: 'a', description: '', body: 'v1' })
+    await lib.update('a', { body: 'v2' })
+    await lib.rename('a', 'b')
+    expect(await versions.history('a')).toEqual([])
+    expect((await versions.history('b')).map((row) => row.body)).toEqual(['v1'])
   })
 })

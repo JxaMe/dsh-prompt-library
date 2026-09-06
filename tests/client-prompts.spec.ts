@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { addPrompt, buildSendLine, exportLibrary, getPromptDetail, importLibrary, listPrompts, removePrompt, renamePrompt, sortSummaries, updatePrompt } from '../src/client/prompts.js'
+import { addPrompt, buildSendLine, exportLibrary, getHistory, getPromptDetail, importLibrary, listPrompts, removePrompt, renamePrompt, restoreVersion, sortSummaries, updatePrompt } from '../src/client/prompts.js'
 
 /** 桩 fetch：状态与 JSON 体可配，收到的请求可查。 */
 function stubFetch(ok: boolean, payload: unknown, status = 200) {
@@ -182,5 +182,34 @@ describe('importLibrary', () => {
     expect(await importLibrary(fetchImpl, {})).toEqual({ added: [], skipped: [{ name: 'a', reason: '重复' }] })
     const bad = stubFetch(true, { added: 'x' })
     await expect(importLibrary(bad.fetchImpl, {})).rejects.toThrow()
+  })
+})
+
+describe('getHistory', () => {
+  test('正常返回版本数组', async () => {
+    const { fetchImpl, seen } = stubFetch(true, { versions: [{ rev: 1, description: '', body: 'v1', at: 1000 }] })
+    expect(await getHistory(fetchImpl, 'a')).toEqual([{ rev: 1, description: '', body: 'v1', at: 1000 }])
+    expect(seen[0]?.url).toBe('/prompt-library/api/prompts/a/versions')
+  })
+
+  test('落空与形态不对抛错', async () => {
+    const missing = stubFetch(false, { error: 'prompt "ghost" does not exist' }, 404)
+    await expect(getHistory(missing.fetchImpl, 'ghost')).rejects.toThrow('prompt "ghost" does not exist')
+    const bad = stubFetch(true, { versions: [{ rev: 'x' }] })
+    await expect(getHistory(bad.fetchImpl, 'a')).rejects.toThrow()
+  })
+})
+
+describe('restoreVersion', () => {
+  test('POST 恢复', async () => {
+    const { fetchImpl, seen } = stubFetch(true, { name: 'a', rev: 1 })
+    await restoreVersion(fetchImpl, 'a', 1)
+    expect(seen[0]?.url).toBe('/prompt-library/api/prompts/restore')
+    expect(JSON.parse(seen[0]?.init?.body as string)).toEqual({ name: 'a', rev: 1 })
+  })
+
+  test('服务端拒绝原文透出', async () => {
+    const { fetchImpl } = stubFetch(false, { error: 'prompt "a" has no version 9' }, 404)
+    await expect(restoreVersion(fetchImpl, 'a', 9)).rejects.toThrow('prompt "a" has no version 9')
   })
 })

@@ -3,6 +3,7 @@ import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { UsageRecord } from './usage.js'
 import type { PromptRecord, Vault } from './vault.js'
+import type { VersionRecord, VersionVault } from './versions.js'
 
 /** 落盘记录 schema：与 PromptRecord 同形，边界读写都过它。 */
 const promptRecordSchema = z.object({
@@ -18,8 +19,17 @@ const usageRecordSchema = z.object({
   lastUsedAt: z.number(),
 })
 
+/** 历史版本落盘 schema：与 VersionRecord 同形。 */
+const versionRecordSchema = z.object({
+  prompt: z.string(),
+  rev: z.number(),
+  description: z.string(),
+  body: z.string(),
+  at: z.number(),
+})
+
 /**
- * 域声明：单文件双表，版本 1。usage 表是后加的——读不到的表按空处理，
+ * 域声明：单文件三表，版本 1。后加的表读不到按空处理，
  * 老文件直接兼容，不写迁移。坏记录整体拒绝（权威数据，不跳过）。
  */
 export const PROMPT_DOMAIN = defineDomain({
@@ -28,6 +38,7 @@ export const PROMPT_DOMAIN = defineDomain({
   tables: {
     prompts: domainTable<string, PromptRecord>(promptRecordSchema),
     usage: domainTable<string, UsageRecord>(usageRecordSchema),
+    versions: domainTable<string, VersionRecord>(versionRecordSchema),
   },
 })
 
@@ -52,5 +63,32 @@ export class DomainVault<T extends { readonly name: string }> implements Vault<T
 
   async all(): Promise<readonly T[]> {
     return [...this.table.entries()].map(([, record]) => record)
+  }
+}
+
+/**
+ * 版本表适配：复合键 `名称\n版本号`（名称禁空白，天然无冲突）。
+ * 只做键形态转换，裁决归 VersionStore。
+ */
+export class TableVersionVault implements VersionVault {
+  constructor(private readonly table: KvTable<string, VersionRecord>) {}
+
+  private static key(prompt: string, rev: number): string {
+    return `${prompt}\n${rev}`
+  }
+
+  async list(prompt: string): Promise<readonly VersionRecord[]> {
+    return [...this.table.entries()]
+      .map(([, record]) => record)
+      .filter((record) => record.prompt === prompt)
+      .sort((a, b) => b.rev - a.rev)
+  }
+
+  async put(record: VersionRecord): Promise<void> {
+    await this.table.put(TableVersionVault.key(record.prompt, record.rev), record)
+  }
+
+  async delete(prompt: string, rev: number): Promise<boolean> {
+    return this.table.delete(TableVersionVault.key(prompt, rev))
   }
 }

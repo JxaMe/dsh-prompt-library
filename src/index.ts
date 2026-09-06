@@ -7,7 +7,8 @@ import { PromptLibrary } from './library.js'
 import { registerPromptRoutes } from './routes.js'
 import type { PromptRouteServer } from './routes.js'
 import { UsageStats } from './usage.js'
-import { PROMPT_DOMAIN, DomainVault } from './vault-domain.js'
+import { VersionStore } from './versions.js'
+import { PROMPT_DOMAIN, DomainVault, TableVersionVault } from './vault-domain.js'
 
 export { Config }
 
@@ -31,7 +32,8 @@ export const inject = ['commands', 'storageDomain']
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const domain = await ctx.storageDomain.open(PROMPT_DOMAIN)
-  const library = new PromptLibrary(new DomainVault(domain.table('prompts')), config)
+  const versions = new VersionStore(new TableVersionVault(domain.table('versions')), Date.now, config.versionHistory)
+  const library = new PromptLibrary(new DomainVault(domain.table('prompts')), config, versions)
   const usage = new UsageStats(new DomainVault(domain.table('usage')), Date.now)
   ctx.provide('prompts', library)
   ctx.effect(() => ctx.commands.register(buildPromptCommand(library, usage)))
@@ -45,6 +47,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       const runtime = webCtx.get('webRuntime') as { trustedHosts?: readonly string[] } | undefined
       return runtime?.trustedHosts ?? []
     }
-    webCtx.effect(() => registerPromptRoutes(webServer, trustedHosts, library, usage))
+    webCtx.effect(() => registerPromptRoutes(webServer, trustedHosts, library, usage, versions))
   })
 }

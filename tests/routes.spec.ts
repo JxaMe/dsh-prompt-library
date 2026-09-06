@@ -6,11 +6,13 @@ import { PromptLibrary } from '../src/library.js'
 import {
   answerPromptAdd,
   answerPromptExport,
+  answerPromptHistory,
   answerPromptImport,
   answerPromptItem,
   answerPromptList,
   answerPromptRemove,
   answerPromptRename,
+  answerPromptRestore,
   answerPromptUpdate,
   isTrustedRequest,
   readJsonBody,
@@ -19,10 +21,12 @@ import {
 } from '../src/routes.js'
 import { MemoryUsage } from './support/usage-memory.js'
 import { MemoryVault } from './support/vault-memory.js'
+import { MemoryVersions } from './support/versions-memory.js'
 import { UsageStats } from '../src/usage.js'
+import { VersionStore } from '../src/versions.js'
 
 function library() {
-  return new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 10 })
+  return new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 10, versionHistory: 20 })
 }
 
 describe('answerPromptList', () => {
@@ -295,7 +299,7 @@ describe('registerPromptRoutes', () => {
         delete: () => Promise.reject(new Error('must not reach')),
         all: () => Promise.reject(new Error('must not reach')),
       },
-      { maxNameLength: 64, maxBodyChars: 100, maxCount: 10 },
+      { maxNameLength: 64, maxBodyChars: 100, maxCount: 10, versionHistory: 20 },
     )
     const { routes, server } = stubServer()
     registerPromptRoutes(server, () => [], broken)
@@ -355,5 +359,62 @@ describe('routePromptRequest import/export', () => {
     const imported = await routePromptRequest(fresh, { method: 'POST', pathname: '/prompt-library/api/prompts/import', body: exported.body })
     expect(imported).toEqual({ status: 200, body: { added: ['a'], skipped: [] } })
     expect(await fresh.get('a')).toEqual({ name: 'a', description: '', body: '甲' })
+  })
+})
+
+describe('answerPromptHistory', () => {
+  test('按倒序返回版本', async () => {
+    const versions = new VersionStore(new MemoryVersions(), () => 1000)
+    const lib = new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 10, versionHistory: 20 }, versions)
+    await lib.add({ name: 'a', description: '', body: 'v1' })
+    await lib.update('a', { body: 'v2' })
+    expect(await answerPromptHistory(lib, versions, 'a')).toEqual({
+      status: 200,
+      body: { versions: [{ rev: 1, description: '', body: 'v1', at: 1000 }] },
+    })
+  })
+
+  test('提示词不在 404，没历史返回空', async () => {
+    expect(await answerPromptHistory(library(), undefined, 'ghost'))
+      .toEqual({ status: 404, body: { error: 'prompt "ghost" does not exist' } })
+    const lib = library()
+    await lib.add({ name: 'a', description: '', body: 'v1' })
+    expect(await answerPromptHistory(lib, undefined, 'a'))
+      .toEqual({ status: 200, body: { versions: [] } })
+  })
+})
+
+describe('answerPromptRestore', () => {
+  test('恢复旧版并可再撤销', async () => {
+    const versions = new VersionStore(new MemoryVersions(), () => 1000)
+    const lib = new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 10, versionHistory: 20 }, versions)
+    await lib.add({ name: 'a', description: '', body: 'v1' })
+    await lib.update('a', { body: 'v2' })
+    expect(await answerPromptRestore(lib, versions, { name: 'a', rev: 1 }))
+      .toEqual({ status: 200, body: { name: 'a', rev: 1 } })
+    expect(await lib.get('a')).toEqual({ name: 'a', description: '', body: 'v1' })
+    expect((await versions.history('a')).map((row) => row.rev)).toEqual([2, 1])
+  })
+
+  test('形态错 400，版本不在 404', async () => {
+    const lib = library()
+    expect(await answerPromptRestore(lib, undefined, { name: 'a' }))
+      .toEqual({ status: 400, body: { error: 'invalid restore payload' } })
+    expect(await answerPromptRestore(lib, undefined, { name: 'a', rev: 9 }))
+      .toEqual({ status: 404, body: { error: 'prompt "a" has no version 9' } })
+  })
+})
+
+describe('routePromptRequest history/restore', () => {
+  test('历史与恢复路径分发', async () => {
+    const versions = new VersionStore(new MemoryVersions(), () => 1000)
+    const lib = new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 10, versionHistory: 20 }, versions)
+    await lib.add({ name: 'a', description: '', body: 'v1' })
+    await lib.update('a', { body: 'v2' })
+    expect(await routePromptRequest(lib, { method: 'GET', pathname: '/prompt-library/api/prompts/a/versions' }, undefined, versions))
+      .toEqual({ status: 200, body: { versions: [{ rev: 1, description: '', body: 'v1', at: 1000 }] } })
+    expect(await routePromptRequest(lib, { method: 'POST', pathname: '/prompt-library/api/prompts/restore', body: { name: 'a', rev: 1 } }, undefined, versions))
+      .toEqual({ status: 200, body: { name: 'a', rev: 1 } })
+    expect(await lib.get('a')).toEqual({ name: 'a', description: '', body: 'v1' })
   })
 })

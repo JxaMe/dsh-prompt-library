@@ -3,6 +3,7 @@ import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { PromptLibraryError } from './errors.js'
 import type { PromptLibrary } from './library.js'
 import type { UsageStats } from './usage.js'
+import type { VersionStore } from './versions.js'
 
 /** 应答：状态码与 JSON 体。handler 只负责搬到 res 上，不做业务判断。 */
 export interface RouteAnswer {
@@ -132,6 +133,53 @@ export async function answerPromptUpdate(library: PromptLibrary, data: unknown):
   return { status: 200, body: { name: data.name } }
 }
 
+/**
+ * 读历史：提示词不在 404；在但没历史返回空数组（不是错）。
+ * @param library - 提示词库。
+ * @param versions - 版本历史（可缺席，缺席即空数组）。
+ * @param name - 提示词名称。
+ * @returns 200 与版本数组（rev 倒序）。
+ */
+export async function answerPromptHistory(
+  library: PromptLibrary,
+  versions: VersionStore | undefined,
+  name: string,
+): Promise<RouteAnswer> {
+  if (await library.get(name) === undefined) return { status: 404, body: { error: `prompt "${name}" does not exist` } }
+  const rows = await versions?.history(name) ?? []
+  return {
+    status: 200,
+    body: { versions: rows.map((row) => ({ rev: row.rev, description: row.description, body: row.body, at: row.at })) },
+  }
+}
+
+function isRestorePayload(data: unknown): data is { name: string; rev: number } {
+  if (typeof data !== 'object' || data === null) return false
+  const row = data as { name?: unknown; rev?: unknown }
+  return typeof row.name === 'string' && typeof row.rev === 'number'
+}
+
+/**
+ * 恢复到某版：本质是 update 到旧内容（会再存一版当前内容，所以恢复本身可撤销）。
+ * 形态错 400；提示词或版本不在 404。
+ * @param library - 提示词库。
+ * @param versions - 版本历史（可缺席，缺席即 404）。
+ * @param data - 解析过的请求体。
+ * @returns 200 或 404/400。
+ */
+export async function answerPromptRestore(
+  library: PromptLibrary,
+  versions: VersionStore | undefined,
+  data: unknown,
+): Promise<RouteAnswer> {
+  if (!isRestorePayload(data)) return { status: 400, body: { error: 'invalid restore payload' } }
+  const rows = await versions?.history(data.name) ?? []
+  const target = rows.find((row) => row.rev === data.rev)
+  if (target === undefined) return { status: 404, body: { error: `prompt "${data.name}" has no version ${data.rev}` } }
+  await library.update(data.name, { description: target.description, body: target.body })
+  return { status: 200, body: { name: data.name, rev: data.rev } }
+}
+
 /** 导出文件格式版本（与存储域版本独立，变格式才升）。 */
 export const PROMPT_EXPORT_VERSION = 1
 
@@ -236,15 +284,20 @@ export async function answerPromptItem(library: PromptLibrary, name: string): Pr
 
 /**
  * 纯分发：方法、路径与解析过的请求体进，应答出。
- * 读路径只认 GET 目录；写路径只认 POST；已知路径错方法 405，未知路径 404。
+ * 读路径只认 GET 目录/单条/历史；写路径只认 POST；已知路径错方法 405，未知路径 404。
+ * 注意：名为 `X/versions` 的提示词会被历史路径遮蔽（单条 GET 到不了它），
+ * 命令行与面板列表不受影响——这是为 history 留的唯一例外。
  * @param library - 提示词库。
  * @param request - 大写方法、不带 query 的路径与解析过的请求体（GET 不带）。
+ * @param usage - 使用统计（可选，目录行带统计）。
+ * @param versions - 版本历史（可选，历史与恢复接口用）。
  * @returns 应答。
  */
 export async function routePromptRequest(
   library: PromptLibrary,
   request: { method: string; pathname: string; body?: unknown },
   usage?: UsageStats,
+  versions?: VersionStore,
 ): Promise<RouteAnswer> {
   const listPath = `${PROMPT_API_PREFIX}/prompts`
   const itemPrefix = `${PROMPT_API_PREFIX}/prompts/`
@@ -254,6 +307,8 @@ export async function routePromptRequest(
   const updatePath = `${PROMPT_API_PREFIX}/prompts/update`
   const exportPath = `${PROMPT_API_PREFIX}/prompts/export`
   const importPath = `${PROMPT_API_PREFIX}/prompts/import`
+  const restorePath = `${PROMPT_API_PREFIX}/prompts/restore`
+  const historySuffix = '/versions'
   if (request.pathname === listPath) {
     if (request.method !== 'GET') return { status: 405, body: { error: 'method not allowed' } }
     return answerPromptList(library, usage)
@@ -261,6 +316,17 @@ export async function routePromptRequest(
   if (request.pathname === exportPath) {
     if (request.method !== 'GET') return { status: 405, body: { error: 'method not allowed' } }
     return answerPromptExport(library)
+  }
+  if (request.method === 'GET' && request.pathname.startsWith(itemPrefix) && request.pathname.endsWith(historySuffix)) {
+    const namePart = request.pathname.slice(itemPrefix.length, -historySuffix.length)
+    if (namePart === '' || namePart.includes('/')) return { status: 404, body: { error: 'not found' } }
+    let name: string
+    try {
+      name = decodeURIComponent(namePart)
+    } catch {
+      return { status: 400, body: { error: 'bad prompt name encoding' } }
+    }
+    return answerPromptHistory(library, versions, name)
   }
   if (request.method === 'GET' && request.pathname.startsWith(itemPrefix)) {
     const encoded = request.pathname.slice(itemPrefix.length)
@@ -273,13 +339,14 @@ export async function routePromptRequest(
     }
     return answerPromptItem(library, name)
   }
-  if (request.pathname === addPath || request.pathname === removePath || request.pathname === renamePath || request.pathname === updatePath || request.pathname === importPath) {
+  if (request.pathname === addPath || request.pathname === removePath || request.pathname === renamePath || request.pathname === updatePath || request.pathname === importPath || request.pathname === restorePath) {
     if (request.method !== 'POST') return { status: 405, body: { error: 'method not allowed' } }
     if (request.pathname === addPath) return answerPromptAdd(library, request.body)
     if (request.pathname === removePath) return answerPromptRemove(library, request.body)
     if (request.pathname === renamePath) return answerPromptRename(library, request.body)
     if (request.pathname === updatePath) return answerPromptUpdate(library, request.body)
-    return answerPromptImport(library, request.body)
+    if (request.pathname === importPath) return answerPromptImport(library, request.body)
+    return answerPromptRestore(library, versions, request.body)
   }
   return { status: 404, body: { error: 'not found' } }
 }
@@ -299,6 +366,7 @@ export interface PromptRouteServer {
  * @param trustedHosts - 每次请求现读的受信列表（跟随服务最新值）。
  * @param library - 提示词库。
  * @param usage - 使用统计（可选，目录行带统计）。
+ * @param versions - 版本历史（可选，历史与恢复接口用）。
  * @returns 注销函数。
  */
 export function registerPromptRoutes(
@@ -306,6 +374,7 @@ export function registerPromptRoutes(
   trustedHosts: () => readonly string[],
   library: PromptLibrary,
   usage?: UsageStats,
+  versions?: VersionStore,
 ): () => void {
   return webServer.register({
     kind: 'prefix',
@@ -329,7 +398,7 @@ export function registerPromptRoutes(
           return
         }
       }
-      const answer = await routePromptRequest(library, { method: req.method ?? 'GET', pathname, body }, usage)
+      const answer = await routePromptRequest(library, { method: req.method ?? 'GET', pathname, body }, usage, versions)
       res.writeHead(answer.status, { 'content-type': 'application/json' })
       res.end(JSON.stringify(answer.body))
     },

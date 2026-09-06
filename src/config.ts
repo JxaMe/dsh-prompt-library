@@ -8,10 +8,13 @@ export interface Config {
   maxBodyChars: number
   /** 最多存几条。 */
   maxCount: number
+  /** 每条留几个历史版本，0 为关闭。 */
+  versionHistory: number
 }
 
 export const Config: z<Partial<Config>, Config> = z.object({
   maxNameLength: z.number().min(1).step(1).default(64),
   maxBodyChars: z.number().min(1).step(1).default(20000),
   maxCount: z.number().min(1).step(1).default(500),
+  versionHistory: z.number().min(0).step(1).default(20),
 })

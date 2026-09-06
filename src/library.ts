@@ -1,5 +1,6 @@
 import { PromptLibraryError } from './errors.js'
 import type { PromptRecord, PromptVault } from './vault.js'
+import type { VersionStore } from './versions.js'
 
 /**
  * 名称规则：非空，不含空白、`=`、`"`。
@@ -35,6 +36,8 @@ export interface LibraryLimits {
   readonly maxBodyChars: number
   /** 最多存几条。 */
   readonly maxCount: number
+  /** 每条留几个历史版本，0 为关闭。 */
+  readonly versionHistory: number
 }
 
 /**
@@ -46,6 +49,7 @@ export class PromptLibrary {
   constructor(
     private readonly vault: PromptVault,
     private readonly limits: LibraryLimits,
+    private readonly versions?: VersionStore,
   ) {}
 
   /**
@@ -77,7 +81,7 @@ export class PromptLibrary {
 
   /**
    * 改内容：只换给定的字段，其余原样保留。空 patch 不写库（读一次即返回）。
-   * 校验顺序：旧名存在、正文长度。
+   * 校验顺序：旧名存在、正文长度。成功且版本未关闭时，先存改前快照。
    * @param name - 提示词名称。
    * @param patch - 要换的字段（至少给一个）。
    */
@@ -95,6 +99,9 @@ export class PromptLibrary {
       throw new PromptLibraryError('body-too-long', `prompt body is ${next.body.length} chars, limit is ${this.limits.maxBodyChars}`)
     }
     if (next.description === current.description && next.body === current.body) return
+    if (this.versions !== undefined && this.limits.versionHistory > 0) {
+      await this.versions.save(name, { description: current.description, body: current.body })
+    }
     await this.vault.put(next)
   }
 
@@ -120,6 +127,7 @@ export class PromptLibrary {
     }
     await this.vault.delete(from)
     await this.vault.put({ name: to, description: current.description, body: current.body })
+    await this.versions?.move(from, to)
   }
 
   /**

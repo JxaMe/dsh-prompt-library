@@ -229,3 +229,50 @@ export async function importLibrary(fetchImpl: FetchImpl, file: unknown): Promis
   if (!isImportReport(data)) throw new Error('prompt import has an unexpected shape')
   return data
 }
+
+/** 历史版本行。 */
+export interface VersionRow {
+  readonly rev: number
+  readonly description: string
+  readonly body: string
+  readonly at: number
+}
+
+function isHistory(data: unknown): data is { versions: VersionRow[] } {
+  if (typeof data !== 'object' || data === null) return false
+  const rows = (data as { versions?: unknown }).versions
+  if (!Array.isArray(rows)) return false
+  return rows.every((item): boolean => {
+    if (typeof item !== 'object' || item === null) return false
+    const row = item as { rev?: unknown; description?: unknown; body?: unknown; at?: unknown }
+    return typeof row.rev === 'number' && typeof row.description === 'string'
+      && typeof row.body === 'string' && typeof row.at === 'number'
+  })
+}
+
+/**
+ * 取历史版本（rev 倒序）。
+ * @param fetchImpl - 请求实现。
+ * @param name - 提示词名称。
+ * @returns 版本行数组。
+ */
+export async function getHistory(fetchImpl: FetchImpl, name: string): Promise<readonly VersionRow[]> {
+  const response = await fetchImpl(`/prompt-library/api/prompts/${encodeURIComponent(name)}/versions`)
+  if (!response.ok) {
+    const data = (await response.json()) as unknown
+    throw new Error(serverMessage(data) ?? `prompt history request failed: ${response.status}`)
+  }
+  const data = (await response.json()) as unknown
+  if (!isHistory(data)) throw new Error('prompt history has an unexpected shape')
+  return data.versions
+}
+
+/**
+ * 恢复到某版（服务端会再存一版当前内容，可撤销）。
+ * @param fetchImpl - 请求实现。
+ * @param name - 提示词名称。
+ * @param rev - 版本号。
+ */
+export async function restoreVersion(fetchImpl: FetchImpl, name: string, rev: number): Promise<void> {
+  await postJson(fetchImpl, '/prompt-library/api/prompts/restore', { name, rev })
+}

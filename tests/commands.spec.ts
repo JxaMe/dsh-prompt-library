@@ -8,7 +8,7 @@ import { MemoryUsage } from './support/usage-memory.js'
 import { MemoryVault } from './support/vault-memory.js'
 
 function library() {
-  return new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 10 })
+  return new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 10, versionHistory: 20 })
 }
 
 describe('buildPromptCommand', () => {

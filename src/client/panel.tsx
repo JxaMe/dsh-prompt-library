@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { PROMPT_NAME_RE } from '../library.js'
-import { extractVariables } from '../template.js'
+import { extractVariables, renderTemplate } from '../template.js'
 import { appendToDraft } from './draft.js'
 import type { DraftInput } from './draft.js'
 import { submitSendLine } from './decorate.js'
-import { addPrompt, buildSendLine, exportLibrary, getPromptDetail, importLibrary, listPrompts, removePrompt, renamePrompt, sortSummaries, updatePrompt } from './prompts.js'
-import type { PromptSummary } from './prompts.js'
+import { addPrompt, buildSendLine, exportLibrary, getHistory, getPromptDetail, importLibrary, listPrompts, removePrompt, renamePrompt, restoreVersion, sortSummaries, updatePrompt } from './prompts.js'
+import type { PromptSummary, VersionRow } from './prompts.js'
 import type { PromptTabDescriptor } from './sidebar-faces.js'
 import type { PanelHost } from './sidebar-faces.js'
 
@@ -27,8 +27,10 @@ export function promptTab(): PromptTabDescriptor {
   }
 }
 
-const row: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #8883' }
-const input: CSSProperties = { flex: 1, minWidth: 0, background: 'transparent', color: 'inherit', border: '1px solid #8885', borderRadius: 4, padding: '4px 8px', fontSize: 13 }
+const row: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)' }
+const btn: CSSProperties = { background: 'transparent', color: 'var(--dsw-alias-label-primary)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 6, padding: '4px 10px', fontSize: 13, cursor: 'pointer' }
+const chip: CSSProperties = { background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 4, padding: '1px 6px' }
+const input: CSSProperties = { flex: 1, minWidth: 0, background: 'transparent', color: 'var(--dsw-alias-label-primary)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 6, padding: '4px 8px', fontSize: 13 }
 
 function PromptPanel(props: PanelHost): ReactNode {
   const [items, setItems] = useState<readonly PromptSummary[]>([])
@@ -45,6 +47,9 @@ function PromptPanel(props: PanelHost): ReactNode {
   const [sending, setSending] = useState<string | null>(null)
   const [sendVars, setSendVars] = useState<readonly string[]>([])
   const [sendValues, setSendValues] = useState<Readonly<Record<string, string>>>({})
+  const [sendBody, setSendBody] = useState('')
+  const [historyOf, setHistoryOf] = useState<string | null>(null)
+  const [historyRows, setHistoryRows] = useState<readonly VersionRow[]>([])
   const [query, setQuery] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -158,7 +163,71 @@ function PromptPanel(props: PanelHost): ReactNode {
     }
   }
 
-  /** 打开发送：无变量直接发，有变量展开填值表单。 */
+  /** 打开历史：拉版本列表展开。失败只报错，不展开。 */
+  async function openHistory(target: string): Promise<void> {
+    setBusy(true)
+    setError('')
+    try {
+      setHistoryRows(await getHistory(globalThis.fetch, target))
+      setHistoryOf(target)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 克隆：把全文填进底部新增表单，改名后点新增即存为新条。 */
+  async function cloneRow(target: string): Promise<void> {
+    setBusy(true)
+    setError('')
+    try {
+      const detail = await getPromptDetail(globalThis.fetch, target)
+      setName(`${target}-copy`)
+      setDescription(detail.description)
+      setBody(detail.body)
+      setNotice(`已填入 ${target} 的副本，改名后点新增`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 保存改名。 */
+  async function saveRename(item: PromptSummary): Promise<void> {
+    await run(async () => {
+      await renamePrompt(globalThis.fetch, item.name, renameTo.trim())
+      setRenaming(null)
+      setRenameTo('')
+    })
+  }
+
+  /** 保存编辑。 */
+  async function saveEdit(item: PromptSummary): Promise<void> {
+    await run(async () => {
+      await updatePrompt(globalThis.fetch, item.name, { description: editDescription.trim(), body: editBody })
+      setEditing(null)
+    })
+  }
+
+  /** 提交发送表单。 */
+  async function submitForm(item: PromptSummary): Promise<void> {
+    await run(async () => {
+      await submit(item.name, sendValues)
+      setSending(null)
+    })
+  }
+
+  /** 回车提交（文本域回车换行，不绑定）。 */
+  function onEnter(action: () => void): (e: ReactKeyboardEvent) => void {
+    return (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        action()
+      }
+    }
+  }
   async function openSend(target: string): Promise<void> {
     setBusy(true)
     setError('')
@@ -174,6 +243,7 @@ function PromptPanel(props: PanelHost): ReactNode {
       setSending(target)
       setSendVars(variables)
       setSendValues(Object.fromEntries(variables.map((name) => [name, ''])))
+      setSendBody(detail.body)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -213,6 +283,16 @@ function PromptPanel(props: PanelHost): ReactNode {
         onChange={(e) => setQuery(e.currentTarget.value)}
         placeholder="搜索名称或说明"
       />
+      <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, marginBottom: 4 }}>双击行插入到输入框（只填不发）</div>
+      {items.length === 0 && (
+        <div style={{ color: 'var(--dsw-alias-label-tertiary)', padding: '12px 0' }}>
+          库是空的，在下面填名称和正文点新增，或者用 <code>/p add 名称 正文</code>。
+          名称可用中文，不能含空格。
+        </div>
+      )}
+      {items.length > 0 && visibleItems().length === 0 && (
+        <div style={{ color: 'var(--dsw-alias-label-tertiary)', padding: '12px 0' }}>没有匹配“{query.trim()}”的提示词</div>
+      )}
       {visibleItems().map((item) => (
         <div
           key={item.name}
@@ -225,7 +305,7 @@ function PromptPanel(props: PanelHost): ReactNode {
         >
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>{item.name}</div>
-            {item.description !== '' && <div style={{ opacity: 0.7 }}>{item.description}</div>}
+            {item.description !== '' && <div style={{ color: 'var(--dsw-alias-label-tertiary)' }}>{item.description}</div>}
           </div>
           {renaming === item.name
             ? (
@@ -235,19 +315,16 @@ function PromptPanel(props: PanelHost): ReactNode {
                   value={renameTo}
                   disabled={busy}
                   onChange={(e) => setRenameTo(e.currentTarget.value)}
+                  onKeyDown={onEnter(() => void saveRename(item))}
                   placeholder="新名称"
                 />
                 <button
                   disabled={busy}
-                  onClick={() => void run(async () => {
-                    await renamePrompt(globalThis.fetch, item.name, renameTo.trim())
-                    setRenaming(null)
-                    setRenameTo('')
-                  })}
+                  onClick={() => void saveRename(item)}
                 >
                   保存
                 </button>
-                <button disabled={busy} onClick={() => { setRenaming(null); setRenameTo('') }}>取消</button>
+                <button style={btn} disabled={busy} onClick={() => { setRenaming(null); setRenameTo('') }}>取消</button>
               </>
             )
             : (
@@ -272,6 +349,18 @@ function PromptPanel(props: PanelHost): ReactNode {
                 </button>
                 <button
                   disabled={busy}
+                  onClick={() => void cloneRow(item.name)}
+                >
+                  克隆
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => void openHistory(item.name)}
+                >
+                  历史
+                </button>
+                <button
+                  disabled={busy}
                   onClick={() => {
                     if (window.confirm(`删除提示词 ${item.name}？`)) void run(() => removePrompt(globalThis.fetch, item.name))
                   }}
@@ -287,6 +376,7 @@ function PromptPanel(props: PanelHost): ReactNode {
                 value={editDescription}
                 disabled={busy}
                 onChange={(e) => setEditDescription(e.currentTarget.value)}
+                onKeyDown={onEnter(() => void saveEdit(item))}
                 placeholder="说明"
               />
               <textarea
@@ -298,50 +388,75 @@ function PromptPanel(props: PanelHost): ReactNode {
               <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
                 <button
                   disabled={busy}
-                  onClick={() => void run(async () => {
-                    await updatePrompt(globalThis.fetch, item.name, { description: editDescription.trim(), body: editBody })
-                    setEditing(null)
-                  })}
+                  onClick={() => void saveEdit(item)}
                 >
                   保存
                 </button>
-                <button disabled={busy} onClick={() => setEditing(null)}>取消</button>
+                <button style={btn} disabled={busy} onClick={() => setEditing(null)}>取消</button>
               </div>
+            </div>
+          )}
+          {historyOf === item.name && (
+            <div style={{ flexBasis: '100%', padding: '8px 0 4px 12px' }}>
+              {historyRows.length === 0 && <div style={{ color: 'var(--dsw-alias-label-tertiary)' }}>暂无历史版本</div>}
+              {historyRows.map((version) => (
+                <div key={version.rev} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0' }}>
+                  <code style={chip}>v{version.rev}</code>
+                  <span style={{ color: 'var(--dsw-alias-label-tertiary)' }}>{new Date(version.at).toLocaleString()}</span>
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {version.description === '' ? version.body.split('\n', 1)[0] : version.description}
+                  </span>
+                  <button
+                    disabled={busy}
+                    onClick={() => void run(async () => {
+                      await restoreVersion(globalThis.fetch, item.name, version.rev)
+                      setHistoryOf(null)
+                    })}
+                  >
+                    恢复
+                  </button>
+                </div>
+              ))}
+              <button style={btn} disabled={busy} onClick={() => setHistoryOf(null)}>收起</button>
             </div>
           )}
           {sending === item.name && (
             <div style={{ flexBasis: '100%', padding: '8px 0 4px 12px' }}>
               {sendVars.map((variable) => (
                 <div key={variable} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                  <code style={{ minWidth: 80 }}>{variable}</code>
+                  <code style={{ ...chip, minWidth: 80 }}>{variable}</code>
                   <input
                     style={input}
                     value={sendValues[variable] ?? ''}
                     disabled={busy}
                     onChange={(e) => setSendValues({ ...sendValues, [variable]: e.currentTarget.value })}
+                    onKeyDown={onEnter(() => void submitForm(item))}
                     placeholder={`输入 ${variable}`}
                   />
                 </div>
               ))}
-              <div style={{ display: 'flex', gap: 8 }}>
+              {(() => {
+                const rendered = renderTemplate(sendBody, sendValues)
+                return rendered.ok
+                  ? <pre style={{ ...input, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{rendered.text}</pre>
+                  : <div style={{ color: 'var(--dsw-alias-label-tertiary)' }}>还缺：{rendered.missing.join('、')}</div>
+              })()}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button
                   disabled={busy}
-                  onClick={() => void run(async () => {
-                    await submit(item.name, sendValues)
-                    setSending(null)
-                  })}
+                  onClick={() => void submitForm(item)}
                 >
                   提交发送
                 </button>
-                <button disabled={busy} onClick={() => setSending(null)}>取消</button>
+                <button style={btn} disabled={busy} onClick={() => setSending(null)}>取消</button>
               </div>
             </div>
           )}
         </div>
       ))}
       <div style={{ ...row, borderBottom: 'none', marginTop: 8 }}>
-        <input style={input} value={name} disabled={busy} onChange={(e) => setName(e.currentTarget.value)} placeholder="名称" />
-        <input style={input} value={description} disabled={busy} onChange={(e) => setDescription(e.currentTarget.value)} placeholder="说明（可选）" />
+        <input style={input} value={name} disabled={busy} onChange={(e) => setName(e.currentTarget.value)} onKeyDown={onEnter(() => void add())} placeholder="名称" />
+        <input style={input} value={description} disabled={busy} onChange={(e) => setDescription(e.currentTarget.value)} onKeyDown={onEnter(() => void add())} placeholder="说明（可选）" />
       </div>
       <textarea
         style={{ ...input, width: '100%', minHeight: 64, marginTop: 8, resize: 'vertical' }}
@@ -351,8 +466,8 @@ function PromptPanel(props: PanelHost): ReactNode {
         placeholder="正文"
       />
       <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-        <button disabled={busy} onClick={() => void add()}>新增</button>
-        <button disabled={busy} onClick={() => void exportFile()}>导出</button>
+        <button style={btn} disabled={busy} onClick={() => void add()}>新增</button>
+        <button style={btn} disabled={busy} onClick={() => void exportFile()}>导出</button>
         <label style={{ alignSelf: 'center', opacity: busy ? 0.5 : 1 }}>
           导入
           <input
@@ -368,7 +483,7 @@ function PromptPanel(props: PanelHost): ReactNode {
           />
         </label>
       </div>
-      {error !== '' && <div style={{ marginTop: 8, color: '#f66' }}>{error}</div>}
+      {error !== '' && <div style={{ marginTop: 8, color: 'var(--dsw-alias-state-error-primary)' }}>{error}</div>}
       {notice !== '' && <div style={{ marginTop: 8 }}>{notice}</div>}
     </div>
   )
