@@ -7,7 +7,7 @@ import { extractVariables } from '../template.js'
 import { appendToDraft } from './draft.js'
 import type { DraftInput } from './draft.js'
 import { submitSendLine } from './decorate.js'
-import { addPrompt, buildSendLine, getPromptDetail, listPrompts, removePrompt, renamePrompt, sortSummaries, updatePrompt } from './prompts.js'
+import { addPrompt, buildSendLine, exportLibrary, getPromptDetail, importLibrary, listPrompts, removePrompt, renamePrompt, sortSummaries, updatePrompt } from './prompts.js'
 import type { PromptSummary } from './prompts.js'
 import type { PromptTabDescriptor } from './sidebar-faces.js'
 import type { PanelHost } from './sidebar-faces.js'
@@ -46,6 +46,7 @@ function PromptPanel(props: PanelHost): ReactNode {
   const [sendVars, setSendVars] = useState<readonly string[]>([])
   const [sendValues, setSendValues] = useState<Readonly<Record<string, string>>>({})
   const [query, setQuery] = useState('')
+  const [notice, setNotice] = useState('')
 
   /** 可见行：先按查询过滤（名称+说明，大小写不敏感），再按常用排序。 */
   function visibleItems(): PromptSummary[] {
@@ -69,6 +70,7 @@ function PromptPanel(props: PanelHost): ReactNode {
   async function run(action: () => Promise<unknown>): Promise<void> {
     setBusy(true)
     setError('')
+    setNotice('')
     try {
       await action()
       await reload()
@@ -77,6 +79,47 @@ function PromptPanel(props: PanelHost): ReactNode {
     } finally {
       setBusy(false)
     }
+  }
+
+  /** 导出整库为 JSON 文件下载。 */
+  async function exportFile(): Promise<void> {
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const file = await exportLibrary(globalThis.fetch)
+      const url = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }))
+      try {
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = 'prompt-library.json'
+        anchor.click()
+        setNotice(`已导出 ${file.prompts.length} 条`)
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 读用户选的文件并导入。JSON 坏了直接报，不碰库。 */
+  async function importFile(chosen: File | undefined): Promise<void> {
+    if (chosen === undefined) return
+    let data: unknown
+    try {
+      data = JSON.parse(await chosen.text()) as unknown
+    } catch {
+      setError('文件不是合法 JSON')
+      return
+    }
+    await run(async () => {
+      const report = await importLibrary(globalThis.fetch, data)
+      const skipped = report.skipped.map((row) => `${row.name}（${row.reason}）`).join('、')
+      setNotice(`导入完成：新增 ${report.added.length}，跳过 ${report.skipped.length}${skipped === '' ? '' : `：${skipped}`}`)
+    })
   }
 
   /** 打开编辑：先拉全文，再展开编辑区。失败只报错，不展开。 */
@@ -146,7 +189,7 @@ function PromptPanel(props: PanelHost): ReactNode {
 
   async function add(): Promise<void> {    const trimmedName = name.trim()
     if (!PROMPT_NAME_RE.test(trimmedName)) {
-      setError('名称只允许小写字母、数字、横线、下划线，小写开头')
+      setError('名称不能为空，不能含空格、`=`、`"`')
       return
     }
     if (body.trim() === '') {
@@ -307,10 +350,26 @@ function PromptPanel(props: PanelHost): ReactNode {
         onChange={(e) => setBody(e.currentTarget.value)}
         placeholder="正文"
       />
-      <div style={{ marginTop: 8 }}>
+      <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
         <button disabled={busy} onClick={() => void add()}>新增</button>
+        <button disabled={busy} onClick={() => void exportFile()}>导出</button>
+        <label style={{ alignSelf: 'center', opacity: busy ? 0.5 : 1 }}>
+          导入
+          <input
+            type="file"
+            accept="application/json,.json"
+            disabled={busy}
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const chosen = e.currentTarget.files?.[0]
+              e.currentTarget.value = ''
+              void importFile(chosen)
+            }}
+          />
+        </label>
       </div>
       {error !== '' && <div style={{ marginTop: 8, color: '#f66' }}>{error}</div>}
+      {notice !== '' && <div style={{ marginTop: 8 }}>{notice}</div>}
     </div>
   )
 }

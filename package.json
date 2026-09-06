@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-manager",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "DSH user prompt library: save, list and send reusable prompts via /p",
   "type": "module",
   "main": "lib/index.js",

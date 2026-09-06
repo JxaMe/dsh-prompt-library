@@ -132,6 +132,39 @@ export async function answerPromptUpdate(library: PromptLibrary, data: unknown):
   return { status: 200, body: { name: data.name } }
 }
 
+/** 导出文件格式版本（与存储域版本独立，变格式才升）。 */
+export const PROMPT_EXPORT_VERSION = 1
+
+/**
+ * 导出整库：全量记录原样给（含正文）。备份、迁移、分享都走它。
+ * @param library - 提示词库。
+ * @returns 200 与版本化文件体。
+ */
+export async function answerPromptExport(library: PromptLibrary): Promise<RouteAnswer> {
+  const all = await library.list()
+  return {
+    status: 200,
+    body: {
+      version: PROMPT_EXPORT_VERSION,
+      prompts: all.map((record) => ({ name: record.name, description: record.description, body: record.body })),
+    },
+  }
+}
+
+/**
+ * 导入：顶层形态错 400；条目逐条裁决（见 importMany），整体永远 200。
+ * @param library - 提示词库。
+ * @param data - 解析过的请求体。
+ * @returns 200 与进库/跳过清单。
+ */
+export async function answerPromptImport(library: PromptLibrary, data: unknown): Promise<RouteAnswer> {
+  if (typeof data !== 'object' || data === null || !Array.isArray((data as { prompts?: unknown }).prompts)) {
+    return { status: 400, body: { error: 'invalid import payload' } }
+  }
+  const result = await library.importMany((data as { prompts: readonly unknown[] }).prompts)
+  return { status: 200, body: { added: result.added, skipped: result.skipped } }
+}
+
 /** 路由前缀。handler 挂 prefix，前缀后全部交分发。 */
 export const PROMPT_API_PREFIX = '/prompt-library/api'
 
@@ -219,9 +252,15 @@ export async function routePromptRequest(
   const removePath = `${PROMPT_API_PREFIX}/prompts/remove`
   const renamePath = `${PROMPT_API_PREFIX}/prompts/rename`
   const updatePath = `${PROMPT_API_PREFIX}/prompts/update`
+  const exportPath = `${PROMPT_API_PREFIX}/prompts/export`
+  const importPath = `${PROMPT_API_PREFIX}/prompts/import`
   if (request.pathname === listPath) {
     if (request.method !== 'GET') return { status: 405, body: { error: 'method not allowed' } }
     return answerPromptList(library, usage)
+  }
+  if (request.pathname === exportPath) {
+    if (request.method !== 'GET') return { status: 405, body: { error: 'method not allowed' } }
+    return answerPromptExport(library)
   }
   if (request.method === 'GET' && request.pathname.startsWith(itemPrefix)) {
     const encoded = request.pathname.slice(itemPrefix.length)
@@ -234,12 +273,13 @@ export async function routePromptRequest(
     }
     return answerPromptItem(library, name)
   }
-  if (request.pathname === addPath || request.pathname === removePath || request.pathname === renamePath || request.pathname === updatePath) {
+  if (request.pathname === addPath || request.pathname === removePath || request.pathname === renamePath || request.pathname === updatePath || request.pathname === importPath) {
     if (request.method !== 'POST') return { status: 405, body: { error: 'method not allowed' } }
     if (request.pathname === addPath) return answerPromptAdd(library, request.body)
     if (request.pathname === removePath) return answerPromptRemove(library, request.body)
     if (request.pathname === renamePath) return answerPromptRename(library, request.body)
-    return answerPromptUpdate(library, request.body)
+    if (request.pathname === updatePath) return answerPromptUpdate(library, request.body)
+    return answerPromptImport(library, request.body)
   }
   return { status: 404, body: { error: 'not found' } }
 }

@@ -24,14 +24,18 @@ describe('PromptLibrary', () => {
     expect(await lib.get('deploy')).toEqual({ name: 'deploy', description: '旧', body: '旧正文' })
   })
 
-  test('名称必须小写开头只含小写数字横线下划线', async () => {
+  test('名称中文大小写符号都行，唯独空白等号引号不行', async () => {
     const lib = library()
-    for (const bad of ['Deploy', 'with space', 'with!bang', '-lead', '']) {
+    await lib.add({ name: 'typeScript开发指南与快捷方式', description: '', body: '正文' })
+    await lib.add({ name: 'Deploy', description: '', body: '正文' })
+    await lib.add({ name: 'with!bang', description: '', body: '正文' })
+    await lib.add({ name: '-lead', description: '', body: '正文' })
+    expect(await lib.get('typeScript开发指南与快捷方式')).toEqual({ name: 'typeScript开发指南与快捷方式', description: '', body: '正文' })
+    for (const bad of ['', 'with space', 'a=b', 'a"b', '前 后']) {
       const failure = await lib.add({ name: bad, description: '', body: '正文' }).catch((error: unknown) => error)
       expect(failure).toBeInstanceOf(PromptLibraryError)
       expect((failure as PromptLibraryError).code).toBe('invalid-name')
     }
-    expect(await lib.get('Deploy')).toBeUndefined()
   })
 
   test('正文超过上限拒绝并报出上限', async () => {
@@ -125,5 +129,39 @@ describe('PromptLibrary', () => {
     const lib = new PromptLibrary(broken, { maxNameLength: 64, maxBodyChars: 100, maxCount: 10 })
     await expect(lib.list()).rejects.toThrow('disk gone')
     await expect(lib.add({ name: 'a', description: '', body: '甲' })).rejects.toThrow('disk gone')
+  })
+})
+
+describe('importMany', () => {
+  test('混合批次逐条裁决，永不覆盖', async () => {
+    const lib = library()
+    await lib.add({ name: 'old', description: '', body: '旧' })
+    const result = await lib.importMany([
+      { name: 'a', description: '甲', body: '甲正文' },
+      { name: 'old', body: '想覆盖' },
+      { name: 'Bad Name', body: 'x' },
+      { name: 'a', body: '批内重名' },
+      null,
+      { name: 'b', body: '乙正文' },
+    ])
+    expect(result.added).toEqual(['a', 'b'])
+    expect(result.skipped).toEqual([
+      { name: 'old', reason: 'prompt "old" already exists' },
+      { name: 'Bad Name', reason: 'invalid prompt name "Bad Name": must not contain whitespace, = or "' },
+      { name: 'a', reason: 'prompt "a" already exists' },
+      { name: '(unknown)', reason: 'invalid prompt payload' },
+    ])
+    expect(await lib.get('old')).toEqual({ name: 'old', description: '', body: '旧' })
+    expect(await lib.get('b')).toEqual({ name: 'b', description: '', body: '乙正文' })
+  })
+
+  test('满额后剩余全跳过', async () => {
+    const lib = new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 1 })
+    const result = await lib.importMany([
+      { name: 'a', body: '甲' },
+      { name: 'b', body: '乙' },
+    ])
+    expect(result.added).toEqual(['a'])
+    expect(result.skipped).toEqual([{ name: 'b', reason: 'prompt library is full (limit is 1)' }])
   })
 })

@@ -1,8 +1,31 @@
 import { PromptLibraryError } from './errors.js'
 import type { PromptRecord, PromptVault } from './vault.js'
 
-/** 名称规则：与 slash 命令名同一套，小写开头。 */
-export const PROMPT_NAME_RE = /^[a-z][a-z0-9_-]*$/u
+/**
+ * 名称规则：非空，不含空白、`=`、`"`。
+ * 空白是命令分词符，`=` 是 send 赋值符，双引号是值分组符——三者进名称会
+ * 让 /p 行解析歧义，其余字符（中文、大小写、符号）一律放行。
+ */
+export const PROMPT_NAME_RE = /^[^\s="]+$/u
+
+/** 批量导入结果：进库的与逐条跳过的（原因写清）。 */
+export interface ImportResult {
+  readonly added: readonly string[]
+  readonly skipped: ReadonlyArray<{ name: string; reason: string }>
+}
+
+function importNameOf(item: unknown): string {
+  if (typeof item !== 'object' || item === null) return '(unknown)'
+  const name = (item as { name?: unknown }).name
+  return typeof name === 'string' ? name : '(unknown)'
+}
+
+function isImportRecord(item: unknown): item is { name: string; description?: string; body: string } {
+  if (typeof item !== 'object' || item === null) return false
+  const row = item as { name?: unknown; description?: unknown; body?: unknown }
+  if (typeof row.name !== 'string' || typeof row.body !== 'string') return false
+  return row.description === undefined || typeof row.description === 'string'
+}
 
 /** 建库时一次给定的上限。部署可配，代码里不写死数字。 */
 export interface LibraryLimits {
@@ -83,7 +106,7 @@ export class PromptLibrary {
    */
   async rename(from: string, to: string): Promise<void> {
     if (!PROMPT_NAME_RE.test(to)) {
-      throw new PromptLibraryError('invalid-name', `invalid prompt name "${to}": use lowercase letters, digits, dash and underscore`)
+      throw new PromptLibraryError('invalid-name', `invalid prompt name "${to}": must not contain whitespace, = or "`)
     }
     if (to.length > this.limits.maxNameLength) {
       throw new PromptLibraryError('name-too-long', `prompt name is ${to.length} chars, limit is ${this.limits.maxNameLength}`)
@@ -105,7 +128,7 @@ export class PromptLibrary {
    */
   async add(input: { name: string; description: string; body: string }): Promise<void> {
     if (!PROMPT_NAME_RE.test(input.name)) {
-      throw new PromptLibraryError('invalid-name', `invalid prompt name "${input.name}": use lowercase letters, digits, dash and underscore`)
+      throw new PromptLibraryError('invalid-name', `invalid prompt name "${input.name}": must not contain whitespace, = or "`)
     }
     if (input.name.length > this.limits.maxNameLength) {
       throw new PromptLibraryError('name-too-long', `prompt name is ${input.name.length} chars, limit is ${this.limits.maxNameLength}`)
@@ -120,5 +143,33 @@ export class PromptLibrary {
       throw new PromptLibraryError('too-many', `prompt library is full (limit is ${this.limits.maxCount})`)
     }
     await this.vault.put({ name: input.name, description: input.description, body: input.body })
+  }
+
+  /**
+   * 批量导入：逐条走 add 的同一套校验，重名（含批内重名）跳过不覆盖，
+   * 每条的去留与原因都在结果里，不抛错（介质故障原样上抛除外）。
+   * @param records - 待导入条目数组。
+   * @returns 进库名单与跳过清单。
+   */
+  async importMany(records: readonly unknown[]): Promise<ImportResult> {
+    const added: string[] = []
+    const skipped: Array<{ name: string; reason: string }> = []
+    for (const item of records) {
+      if (!isImportRecord(item)) {
+        skipped.push({ name: importNameOf(item), reason: 'invalid prompt payload' })
+        continue
+      }
+      try {
+        await this.add({ name: item.name, description: item.description ?? '', body: item.body })
+        added.push(item.name)
+      } catch (error) {
+        if (error instanceof PromptLibraryError) {
+          skipped.push({ name: item.name, reason: error.message })
+          continue
+        }
+        throw error
+      }
+    }
+    return { added, skipped }
   }
 }

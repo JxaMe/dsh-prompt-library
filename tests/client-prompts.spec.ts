@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { addPrompt, buildSendLine, getPromptDetail, listPrompts, removePrompt, renamePrompt, sortSummaries, updatePrompt } from '../src/client/prompts.js'
+import { addPrompt, buildSendLine, exportLibrary, getPromptDetail, importLibrary, listPrompts, removePrompt, renamePrompt, sortSummaries, updatePrompt } from '../src/client/prompts.js'
 
 /** 桩 fetch：状态与 JSON 体可配，收到的请求可查。 */
 function stubFetch(ok: boolean, payload: unknown, status = 200) {
@@ -149,5 +149,38 @@ describe('buildSendLine', () => {
 
   test('值含双引号直接拒绝（解析器 v1 无转义）', () => {
     expect(() => buildSendLine('review', { focus: 'say "hi"' })).toThrow('must not contain double quotes')
+  })
+})
+
+describe('exportLibrary', () => {
+  test('正常返回版本化文件体', async () => {
+    const { fetchImpl, seen } = stubFetch(true, { version: 1, prompts: [{ name: 'a', description: '', body: '甲' }] })
+    expect(await exportLibrary(fetchImpl)).toEqual({ version: 1, prompts: [{ name: 'a', description: '', body: '甲' }] })
+    expect(seen[0]?.url).toBe('/prompt-library/api/prompts/export')
+    expect(seen[0]?.init?.method).toBeUndefined()
+  })
+
+  test('形态不对与 HTTP 失败抛错', async () => {
+    const bad = stubFetch(true, { version: 1, prompts: [{ name: 'a' }] })
+    await expect(exportLibrary(bad.fetchImpl)).rejects.toThrow()
+    const failed = stubFetch(false, {}, 500)
+    await expect(exportLibrary(failed.fetchImpl)).rejects.toThrow('500')
+  })
+})
+
+describe('importLibrary', () => {
+  test('POST 文件体并返回清单', async () => {
+    const file = { version: 1, prompts: [{ name: 'a', description: '', body: '甲' }] }
+    const { fetchImpl, seen } = stubFetch(true, { added: ['a'], skipped: [] })
+    expect(await importLibrary(fetchImpl, file)).toEqual({ added: ['a'], skipped: [] })
+    expect(seen[0]?.url).toBe('/prompt-library/api/prompts/import')
+    expect(JSON.parse(seen[0]?.init?.body as string)).toEqual(file)
+  })
+
+  test('服务端清单原文透出，形态不对抛错', async () => {
+    const { fetchImpl } = stubFetch(true, { added: [], skipped: [{ name: 'a', reason: '重复' }] })
+    expect(await importLibrary(fetchImpl, {})).toEqual({ added: [], skipped: [{ name: 'a', reason: '重复' }] })
+    const bad = stubFetch(true, { added: 'x' })
+    await expect(importLibrary(bad.fetchImpl, {})).rejects.toThrow()
   })
 })

@@ -5,6 +5,8 @@ import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { PromptLibrary } from '../src/library.js'
 import {
   answerPromptAdd,
+  answerPromptExport,
+  answerPromptImport,
   answerPromptItem,
   answerPromptList,
   answerPromptRemove,
@@ -72,7 +74,7 @@ describe('answerPromptAdd', () => {
     expect(await answerPromptAdd(lib, { name: 'deploy', body: '新' }))
       .toEqual({ status: 400, body: { error: 'prompt "deploy" already exists' } })
     expect(await answerPromptAdd(lib, { name: 'Bad Name', body: 'x' }))
-      .toEqual({ status: 400, body: { error: 'invalid prompt name "Bad Name": use lowercase letters, digits, dash and underscore' } })
+      .toEqual({ status: 400, body: { error: 'invalid prompt name "Bad Name": must not contain whitespace, = or "' } })
   })
 })
 
@@ -310,5 +312,48 @@ describe('registerPromptRoutes', () => {
     await routes[0]?.handler(request('POST', '/prompt-library/api/prompts', '127.0.0.1'), res)
     expect(status()).toBe(405)
     expect(json()).toEqual({ error: 'method not allowed' })
+  })
+})
+
+describe('answerPromptExport', () => {
+  test('导出带版本的全量记录', async () => {
+    const lib = library()
+    await lib.add({ name: 'a', description: '甲', body: '甲正文' })
+    expect(await answerPromptExport(lib)).toEqual({
+      status: 200,
+      body: { version: 1, prompts: [{ name: 'a', description: '甲', body: '甲正文' }] },
+    })
+  })
+})
+
+describe('answerPromptImport', () => {
+  test('混合批次整体 200，逐条见分晓', async () => {
+    const lib = library()
+    await lib.add({ name: 'old', description: '', body: '旧' })
+    expect(await answerPromptImport(lib, { version: 1, prompts: [{ name: 'a', body: '甲' }, { name: 'old', body: 'x' }] }))
+      .toEqual({
+        status: 200,
+        body: { added: ['a'], skipped: [{ name: 'old', reason: 'prompt "old" already exists' }] },
+      })
+  })
+
+  test('顶层形态错 400', async () => {
+    expect(await answerPromptImport(library(), { prompts: 'nope' }))
+      .toEqual({ status: 400, body: { error: 'invalid import payload' } })
+    expect(await answerPromptImport(library(), null))
+      .toEqual({ status: 400, body: { error: 'invalid import payload' } })
+  })
+})
+
+describe('routePromptRequest import/export', () => {
+  test('导出导入路径分发（导出体直接可导回）', async () => {
+    const lib = library()
+    await lib.add({ name: 'a', description: '', body: '甲' })
+    const exported = await routePromptRequest(lib, { method: 'GET', pathname: '/prompt-library/api/prompts/export' })
+    expect(exported.status).toBe(200)
+    const fresh = library()
+    const imported = await routePromptRequest(fresh, { method: 'POST', pathname: '/prompt-library/api/prompts/import', body: exported.body })
+    expect(imported).toEqual({ status: 200, body: { added: ['a'], skipped: [] } })
+    expect(await fresh.get('a')).toEqual({ name: 'a', description: '', body: '甲' })
   })
 })

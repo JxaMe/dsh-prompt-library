@@ -169,3 +169,63 @@ export async function getPromptDetail(fetchImpl: FetchImpl, name: string, init?:
   if (!isPromptDetail(data)) throw new Error('prompt detail has an unexpected shape')
   return data
 }
+
+/** 导出文件体：版本 + 全量记录。 */
+export interface PromptExportFile {
+  readonly version: number
+  readonly prompts: ReadonlyArray<{ name: string; description: string; body: string }>
+}
+
+function isExportFile(data: unknown): data is PromptExportFile {
+  if (typeof data !== 'object' || data === null) return false
+  const file = data as { version?: unknown; prompts?: unknown }
+  if (typeof file.version !== 'number' || !Array.isArray(file.prompts)) return false
+  return file.prompts.every((item): boolean => {
+    if (typeof item !== 'object' || item === null) return false
+    const row = item as { name?: unknown; description?: unknown; body?: unknown }
+    return typeof row.name === 'string' && typeof row.description === 'string' && typeof row.body === 'string'
+  })
+}
+
+/**
+ * 导出整库。形态不对直接抛。
+ * @param fetchImpl - 请求实现。
+ * @returns 版本化文件体。
+ */
+export async function exportLibrary(fetchImpl: FetchImpl = globalThis.fetch): Promise<PromptExportFile> {
+  const response = await fetchImpl('/prompt-library/api/prompts/export')
+  if (!response.ok) throw new Error(`prompt export request failed: ${response.status}`)
+  const data = (await response.json()) as unknown
+  if (!isExportFile(data)) throw new Error('prompt export has an unexpected shape')
+  return data
+}
+
+/** 导入清单：进库的与逐条跳过的。 */
+export interface ImportReport {
+  readonly added: readonly string[]
+  readonly skipped: ReadonlyArray<{ name: string; reason: string }>
+}
+
+function isImportReport(data: unknown): data is ImportReport {
+  if (typeof data !== 'object' || data === null) return false
+  const report = data as { added?: unknown; skipped?: unknown }
+  if (!Array.isArray(report.added) || !report.added.every((name): boolean => typeof name === 'string')) return false
+  if (!Array.isArray(report.skipped)) return false
+  return report.skipped.every((item): boolean => {
+    if (typeof item !== 'object' || item === null) return false
+    const row = item as { name?: unknown; reason?: unknown }
+    return typeof row.name === 'string' && typeof row.reason === 'string'
+  })
+}
+
+/**
+ * 导入文件体。服务端逐条裁决，清单原文返回。
+ * @param fetchImpl - 请求实现。
+ * @param file - 解析过的文件体（形态由服务端终审，这里只透传）。
+ * @returns 进库与跳过清单。
+ */
+export async function importLibrary(fetchImpl: FetchImpl, file: unknown): Promise<ImportReport> {
+  const data = await postJson(fetchImpl, '/prompt-library/api/prompts/import', file)
+  if (!isImportReport(data)) throw new Error('prompt import has an unexpected shape')
+  return data
+}
