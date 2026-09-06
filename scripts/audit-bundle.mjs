@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs'
 
 const ALLOWED_EXTERNALS = new Set(['react', 'react/jsx-runtime'])
-const BUNDLE_ID = 'dsh-prompt-manager'
+const BUNDLE_ID = 'dsh-prompt-library'
 
 const src = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
 const compact = src.replace(/\/\/# sourceMappingURL=.*$/, '').replace(/\s+/g, ' ').trimEnd()

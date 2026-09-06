@@ -19,7 +19,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** cordis.yml 挂载名。 */
-export const name = 'dsh-prompt-manager'
+export const name = 'dsh-prompt-library'
 
 /** 先备好的服务：命令注册表与存储域。 */
 export const inject = ['commands', 'storageDomain']

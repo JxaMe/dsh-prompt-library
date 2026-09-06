@@ -21,7 +21,7 @@ import type { PanelHost } from './sidebar-faces.js'
  */
 export function promptTab(): PromptTabDescriptor {
   return {
-    id: 'prompt-manager:library',
+    id: 'prompt-library:library',
     title: '提示词',
     icon: (size: number): ReactNode => <span style={{ fontSize: size, lineHeight: 1 }}>词</span>,
     single: true,

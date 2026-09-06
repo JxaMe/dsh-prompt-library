@@ -1,5 +1,5 @@
-# dsh-prompt-manager bundle patch: mount the Host half (P0, no Client half yet).
+# dsh-prompt-library bundle patch: mount the Host half (P0, no Client half yet).
 - insert:
     - id: prompt-manager
-      name: 'dsh-prompt-manager'
-      disabled: !!js "[...ctx.loader.entries()].some((e) => e.options.name === 'dsh-prompt-manager' && e.options.id !== 'prompt-manager' && !e.disabled)"
+      name: 'dsh-prompt-library'
+      disabled: !!js "[...ctx.loader.entries()].some((e) => e.options.name === 'dsh-prompt-library' && e.options.id !== 'prompt-manager' && !e.disabled)"

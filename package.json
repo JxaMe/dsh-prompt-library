@@ -1,11 +1,11 @@
 {
-  "name": "dsh-prompt-manager",
+  "name": "dsh-prompt-library",
   "version": "0.7.0",
   "description": "DSH user prompt library: save, list and send reusable prompts via /p",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/JxaMe/dsh-prompt-manager.git"
+    "url": "git+https://github.com/JxaMe/dsh-prompt-library.git"
   },
   "keywords": ["dsh", "deepseek-harness", "prompt", "prompt-manager", "slash-command"],
   "main": "lib/index.js",

@@ -1,4 +1,4 @@
-# dsh-prompt-manager
+# dsh-prompt-library
 
 > DSH 的用户提示词库：存一次，`/p`、 `@`、管理页三处通用。常用指令不用再翻聊天记录，也不用反复手打。
 
@@ -126,7 +126,7 @@ curl http://127.0.0.1:3080/prompt-library/api/prompts
 
 ```yaml
 - id: prompt-manager
-  name: 'dsh-prompt-manager'
+  name: 'dsh-prompt-library'
   config:
     maxNameLength: 64     # 名称最大长度
     maxBodyChars: 20000   # 正文最大字符数
@@ -164,7 +164,7 @@ skill 是给模型按需加载的任务指令（多文件、可远程）；这�
 欢迎提需求和修 bug（中文就行）：
 
 ```bash
-git clone <本仓库> && cd dsh-prompt-manager
+git clone <本仓库> && cd dsh-prompt-library
 npm install --include=dev
 npm test          # 全量测试，红了不许提交
 npm run typecheck # Host/Client 双编译面都要干净

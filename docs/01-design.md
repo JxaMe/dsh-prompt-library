@@ -1,4 +1,4 @@
-# dsh-prompt-manager 设计文档（v1）
+# dsh-prompt-library 设计文档（v1）
 
 > 状态：设计待确认。确认后按 §11 分阶段实现。调研依据见 `docs/00-research-*.md`。
 
@@ -49,12 +49,12 @@
 
 ## 3. 包与目录结构
 
-包名：`dsh-prompt-manager`（3 段以内小写 recreational 前缀规则见仓库命名规范；发布前用 `dsh plugin add <git|npm>` 安装）。
+包名：`dsh-prompt-library`（3 段以内小写 recreational 前缀规则见仓库命名规范；发布前用 `dsh plugin add <git|npm>` 安装）。
 
 ```text
-dsh-prompt-manager/
+dsh-prompt-library/
   package.json          # exports "." + "./client"；dsh.bundle.patch + dsh.client 声明
-  cordis.patch.yml      # 单条 - insert: [{id: prompt-manager, name: dsh-prompt-manager}]
+  cordis.patch.yml      # 单条 - insert: [{id: prompt-manager, name: dsh-prompt-library}]
   tsconfig.json         # strict（见 §7）
   tsdown.config.ts      # 仅 P1 需要：复刻 lazy-CJS factory（banner/footer+externals）
   src/
@@ -100,7 +100,7 @@ type PromptName = Branded<string>; // 校验规则同命令名：/^[a-z][a-z0-9_
 
 ```ts
 // src/index.ts
-export const name = 'dsh-prompt-manager';
+export const name = 'dsh-prompt-library';
 export const inject = ['commands', 'storageDomain']; // 用到 webServer/settings 时再追加
 export { Config } from './config.ts';
 export function apply(ctx: Context, config: Config): void {
@@ -191,8 +191,8 @@ dsh-web restart && dsh-web logs         # 新增 npm 包必须重启（live patc
 ```yaml
 - insert:
     - id: prompt-manager
-      name: 'dsh-prompt-manager'
-      disabled: !!js "[...ctx.loader.entries()].some((e) => e.options.name === 'dsh-prompt-manager' && e.options.id !== 'prompt-manager' && !e.disabled)"
+      name: 'dsh-prompt-library'
+      disabled: !!js "[...ctx.loader.entries()].some((e) => e.options.name === 'dsh-prompt-library' && e.options.id !== 'prompt-manager' && !e.disabled)"
 ```
 
 ## 13. 动手前待验证（实现阶段第一步，不猜）
@@ -202,6 +202,6 @@ dsh-web restart && dsh-web logs         # 新增 npm 包必须重启（live patc
 1. ✅ `ctx.storageDomain`：`DomainFacility.open(spec)` + `KvTable`（读内存同步、写链串行）。注意 `UNIT_NAME_RE` 禁横线。
 2. ✅ `ctx.commands.register`：`CommandDefinition/Handler/Result` 精确形状（实现按 npm `0.1.2-rc.1` 的类型写，只用两边都稳定的字段：name/description/input.hint/handler、kind/text）。
 3. ✅ `createUserMessage` 用法：抄扩展手册示例，组合测试用真实现跑通。
-4. 包名 `dsh-prompt-manager` 在 npm/GitHub 无冲突（发布前查）。
+4. 包名 `dsh-prompt-library` 在 npm/GitHub 无冲突（发布前查）。
 5. 版本差：单测/组合测试跑在 npm `0.1.2-rc.1` 上，生产宿主是 `0.1.3-alpha.1`；所触表面经核对两边兼容（没碰改名的 `attachments/images` 字段）。真机挂载验证时复核。
 6. 依赖策略（仿 better-sidebar）：`@deepseek-ai/*` 全走 peer（宿主解决），`zod` 走普通依赖（叶子库，结构互操作，不依赖跨副本身份）。
