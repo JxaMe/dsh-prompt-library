@@ -3,6 +3,11 @@
   "version": "0.7.0",
   "description": "DSH user prompt library: save, list and send reusable prompts via /p",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JxaMe/dsh-prompt-manager.git"
+  },
+  "keywords": ["dsh", "deepseek-harness", "prompt", "prompt-manager", "slash-command"],
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
@@ -25,7 +30,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.host.json && tsc --noEmit -p tsconfig.client.json",
     "build": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && tsc -p tsconfig.build-client.json && tsdown",
     "audit:bundle": "node scripts/audit-bundle.mjs",
-    "ship": "npm run build && npm run audit:bundle && npm pack"
+    "ship": "npm run build && npm run audit:bundle && npm pack",
+    "prepare": "npm run build"
   },
   "engines": {
     "node": ">=22"
