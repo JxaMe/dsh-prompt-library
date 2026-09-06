@@ -163,6 +163,7 @@ export function apply(ctx: Context, config: Config): void {
 | 工作区级覆盖 | store 改为双层合并（全局打底 + cwd 覆盖，仿 skill 注册表裁决） | 存储 spec 升级 version，需写迁移，命令行为不变 |
 | 给模型用的 tool | 本包内 `ctx.tools.register('prompt_get')` | 附带 snapshot 测试成本，独立决策 |
 | @提及触发 | `ui-input-trigger` 贡献 | 与 `/p` 共用 store + service |
+| skill 托管（暂缓） | 本包做 `ctx.skills.registerProvider`，只收单文本 skill（多文件的继续放 `~/.dsh/skills/`）；`@` 做粘贴式插入 | 记录加调用策略字段，存储升 v2 写迁移；复用官方 skill 机制，不自建 tool |
 
 ## 10. 测试策略
 
