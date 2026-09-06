@@ -27,10 +27,10 @@ export function promptTab(): PromptTabDescriptor {
   }
 }
 
-const row: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)' }
+const row: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)' }
 const btn: CSSProperties = { background: 'transparent', color: 'var(--dsw-alias-label-primary)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 6, padding: '4px 10px', fontSize: 13, cursor: 'pointer' }
 const chip: CSSProperties = { background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 4, padding: '1px 6px' }
-const input: CSSProperties = { flex: 1, minWidth: 0, background: 'transparent', color: 'var(--dsw-alias-label-primary)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 6, padding: '4px 8px', fontSize: 13 }
+const input: CSSProperties = { flex: '1 1 140px', minWidth: 0, background: 'transparent', color: 'var(--dsw-alias-label-primary)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 6, padding: '4px 8px', fontSize: 13 }
 
 function PromptPanel(props: PanelHost): ReactNode {
   const [items, setItems] = useState<readonly PromptSummary[]>([])
@@ -47,6 +47,7 @@ function PromptPanel(props: PanelHost): ReactNode {
   const [sending, setSending] = useState<string | null>(null)
   const [sendVars, setSendVars] = useState<readonly string[]>([])
   const [sendValues, setSendValues] = useState<Readonly<Record<string, string>>>({})
+  const [menuOf, setMenuOf] = useState<string | null>(null)
   const [sendBody, setSendBody] = useState('')
   const [historyOf, setHistoryOf] = useState<string | null>(null)
   const [historyRows, setHistoryRows] = useState<readonly VersionRow[]>([])
@@ -283,7 +284,7 @@ function PromptPanel(props: PanelHost): ReactNode {
         onChange={(e) => setQuery(e.currentTarget.value)}
         placeholder="搜索名称或说明"
       />
-      <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, marginBottom: 4 }}>双击行插入到输入框（只填不发）</div>
+      <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, marginBottom: 4 }}>双击行或点插入进输入框（只填不发）</div>
       {items.length === 0 && (
         <div style={{ color: 'var(--dsw-alias-label-tertiary)', padding: '12px 0' }}>
           库是空的，在下面填名称和正文点新增，或者用 <code>/p add 名称 正文</code>。
@@ -303,8 +304,8 @@ function PromptPanel(props: PanelHost): ReactNode {
             void insertRow(item)
           }}
         >
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 600 }}>{item.name}</div>
+          <div style={{ flex: '1 1 140px', minWidth: 0 }}>
+            <div style={{ fontWeight: 600, overflowWrap: 'break-word', minWidth: 0 }}>{item.name}</div>
             {item.description !== '' && <div style={{ color: 'var(--dsw-alias-label-tertiary)' }}>{item.description}</div>}
           </div>
           {renaming === item.name
@@ -319,7 +320,7 @@ function PromptPanel(props: PanelHost): ReactNode {
                   placeholder="新名称"
                 />
                 <button
-                  disabled={busy}
+                  style={btn} disabled={busy}
                   onClick={() => void saveRename(item)}
                 >
                   保存
@@ -330,45 +331,62 @@ function PromptPanel(props: PanelHost): ReactNode {
             : (
               <>
                 <button
-                  disabled={busy}
-                  onClick={() => { setRenaming(item.name); setRenameTo(item.name) }}
-                >
-                  改名
-                </button>
-                <button
-                  disabled={busy}
-                  onClick={() => void openEditor(item.name)}
-                >
-                  编辑
-                </button>
-                <button
-                  disabled={busy}
+                  style={btn} disabled={busy}
                   onClick={() => void openSend(item.name)}
                 >
                   发送
                 </button>
                 <button
-                  disabled={busy}
-                  onClick={() => void cloneRow(item.name)}
+                  style={btn} disabled={busy}
+                  onClick={() => void insertRow(item)}
                 >
-                  克隆
+                  插入
                 </button>
                 <button
-                  disabled={busy}
-                  onClick={() => void openHistory(item.name)}
+                  style={btn} disabled={busy}
+                  onClick={() => setMenuOf(menuOf === item.name ? null : item.name)}
                 >
-                  历史
-                </button>
-                <button
-                  disabled={busy}
-                  onClick={() => {
-                    if (window.confirm(`删除提示词 ${item.name}？`)) void run(() => removePrompt(globalThis.fetch, item.name))
-                  }}
-                >
-                  删除
+                  ⋯
                 </button>
               </>
             )}
+          {menuOf === item.name && (
+            <div style={{ flexBasis: '100%', display: 'flex', flexWrap: 'wrap', gap: 8, padding: '4px 0 4px 12px' }}>
+              <button
+                style={btn} disabled={busy}
+                onClick={() => { setMenuOf(null); setRenaming(item.name); setRenameTo(item.name) }}
+              >
+                改名
+              </button>
+              <button
+                style={btn} disabled={busy}
+                onClick={() => { setMenuOf(null); void openEditor(item.name) }}
+              >
+                编辑
+              </button>
+              <button
+                style={btn} disabled={busy}
+                onClick={() => { setMenuOf(null); void cloneRow(item.name) }}
+              >
+                克隆
+              </button>
+              <button
+                style={btn} disabled={busy}
+                onClick={() => { setMenuOf(null); void openHistory(item.name) }}
+              >
+                历史
+              </button>
+              <button
+                style={btn} disabled={busy}
+                onClick={() => {
+                  setMenuOf(null)
+                  if (window.confirm(`删除提示词 ${item.name}？`)) void run(() => removePrompt(globalThis.fetch, item.name))
+                }}
+              >
+                删除
+              </button>
+            </div>
+          )}
           {editing === item.name && (
             <div style={{ flexBasis: '100%', padding: '8px 0 4px 12px' }}>
               <input
@@ -385,9 +403,9 @@ function PromptPanel(props: PanelHost): ReactNode {
                 disabled={busy}
                 onChange={(e) => setEditBody(e.currentTarget.value)}
               />
-              <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+              <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 <button
-                  disabled={busy}
+                  style={btn} disabled={busy}
                   onClick={() => void saveEdit(item)}
                 >
                   保存
@@ -400,14 +418,14 @@ function PromptPanel(props: PanelHost): ReactNode {
             <div style={{ flexBasis: '100%', padding: '8px 0 4px 12px' }}>
               {historyRows.length === 0 && <div style={{ color: 'var(--dsw-alias-label-tertiary)' }}>暂无历史版本</div>}
               {historyRows.map((version) => (
-                <div key={version.rev} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0' }}>
+                <div key={version.rev} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '4px 0' }}>
                   <code style={chip}>v{version.rev}</code>
                   <span style={{ color: 'var(--dsw-alias-label-tertiary)' }}>{new Date(version.at).toLocaleString()}</span>
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {version.description === '' ? version.body.split('\n', 1)[0] : version.description}
                   </span>
                   <button
-                    disabled={busy}
+                    style={btn} disabled={busy}
                     onClick={() => void run(async () => {
                       await restoreVersion(globalThis.fetch, item.name, version.rev)
                       setHistoryOf(null)
@@ -423,7 +441,7 @@ function PromptPanel(props: PanelHost): ReactNode {
           {sending === item.name && (
             <div style={{ flexBasis: '100%', padding: '8px 0 4px 12px' }}>
               {sendVars.map((variable) => (
-                <div key={variable} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <div key={variable} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                   <code style={{ ...chip, minWidth: 80 }}>{variable}</code>
                   <input
                     style={input}
@@ -441,9 +459,9 @@ function PromptPanel(props: PanelHost): ReactNode {
                   ? <pre style={{ ...input, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{rendered.text}</pre>
                   : <div style={{ color: 'var(--dsw-alias-label-tertiary)' }}>还缺：{rendered.missing.join('、')}</div>
               })()}
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                 <button
-                  disabled={busy}
+                  style={btn} disabled={busy}
                   onClick={() => void submitForm(item)}
                 >
                   提交发送
@@ -465,7 +483,7 @@ function PromptPanel(props: PanelHost): ReactNode {
         onChange={(e) => setBody(e.currentTarget.value)}
         placeholder="正文"
       />
-      <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+      <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <button style={btn} disabled={busy} onClick={() => void add()}>新增</button>
         <button style={btn} disabled={busy} onClick={() => void exportFile()}>导出</button>
         <label style={{ alignSelf: 'center', opacity: busy ? 0.5 : 1 }}>
