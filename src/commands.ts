@@ -3,6 +3,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { PromptLibrary } from './library.js'
 import { PromptLibraryError } from './errors.js'
 import { PROMPT_USAGE, parsePromptArgs } from './parse.js'
+import { extractVariables, renderTemplate } from './template.js'
 
 /**
  * 注册给 ctx.commands 的 /p 定义。handler 是薄适配：
@@ -77,7 +78,21 @@ export async function runPromptCommand(
   if (command.kind === 'send') {
     const record = await library.get(command.name)
     if (record === undefined) return { kind: 'error', text: `prompt "${command.name}" does not exist` }
-    input.send(record.body)
+    const variables = extractVariables(record.body)
+    if (variables.length === 0) {
+      const extra = Object.keys(command.values)
+      if (extra.length > 0) return { kind: 'error', text: `prompt "${command.name}" takes no variables, got: ${extra.join(', ')}` }
+      input.send(record.body)
+      return { kind: 'success', text: `sent "${command.name}"` }
+    }
+    const unknown = Object.keys(command.values).filter((key) => !variables.includes(key))
+    if (unknown.length > 0) return { kind: 'error', text: `unknown variables for "${command.name}": ${unknown.join(', ')}` }
+    const rendered = renderTemplate(record.body, command.values)
+    if (!rendered.ok) {
+      const hint = rendered.missing.map((name) => `${name}=...`).join(' ')
+      return { kind: 'error', text: `missing variables for "${command.name}": ${rendered.missing.join(', ')}. usage: /p send ${command.name} ${hint}` }
+    }
+    input.send(rendered.text)
     return { kind: 'success', text: `sent "${command.name}"` }
   }
   if (command.kind === 'invalid') return { kind: 'error', text: command.reason }

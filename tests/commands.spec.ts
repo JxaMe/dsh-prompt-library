@@ -98,6 +98,34 @@ describe('runPromptCommand', () => {
     expect(result).toEqual({ kind: 'error', text: 'prompt "ghost" does not exist' })
   })
 
+  test('send 有变量按赋值渲染后发送', async () => {
+    const lib = library()
+    await lib.add({ name: 'review', description: '', body: '看 {{pr}} 的 {{focus}}' })
+    let sent: string | undefined
+    const result = await runPromptCommand(lib, { rawInput: ' send review pr=12 focus=安全 ', send: (body) => { sent = body } })
+    expect(sent).toBe('看 12 的 安全')
+    expect(result).toEqual({ kind: 'success', text: 'sent "review"' })
+  })
+
+  test('send 缺变量点名并给补全格式', async () => {
+    const lib = library()
+    await lib.add({ name: 'review', description: '', body: '看 {{pr}} 的 {{focus}}' })
+    let called = false
+    const result = await runPromptCommand(lib, { rawInput: ' send review pr=12 ', send: () => { called = true } })
+    expect(called).toBe(false)
+    expect(result).toEqual({ kind: 'error', text: 'missing variables for "review": focus. usage: /p send review focus=...' })
+  })
+
+  test('send 未知键算拼写错，无变量还硬给也算错', async () => {
+    const lib = library()
+    await lib.add({ name: 'review', description: '', body: '看 {{pr}}' })
+    await lib.add({ name: 'plain', description: '', body: '纯文本' })
+    expect(await runPromptCommand(lib, { rawInput: ' send review pr=1 fcous=x ', send: () => {} }))
+      .toEqual({ kind: 'error', text: 'unknown variables for "review": fcous' })
+    expect(await runPromptCommand(lib, { rawInput: ' send plain k=v ', send: () => {} }))
+      .toEqual({ kind: 'error', text: 'prompt "plain" takes no variables, got: k' })
+  })
+
   test('命令入口把 send 接到 agent.followup，消息内容为正文', async () => {
     const lib = library()
     await lib.add({ name: 'deploy', description: '', body: '上线正文' })

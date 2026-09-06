@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { PROMPT_NAME_RE } from '../library.js'
+import { extractVariables } from '../template.js'
 import { appendToDraft } from './draft.js'
 import type { DraftInput } from './draft.js'
-import { addPrompt, getPromptDetail, listPrompts, removePrompt, renamePrompt, updatePrompt } from './prompts.js'
+import { submitSendLine } from './decorate.js'
+import { addPrompt, buildSendLine, getPromptDetail, listPrompts, removePrompt, renamePrompt, updatePrompt } from './prompts.js'
 import type { PromptSummary } from './prompts.js'
 import type { PromptTabDescriptor } from './sidebar-faces.js'
 import type { PanelHost } from './sidebar-faces.js'
@@ -39,6 +42,9 @@ function PromptPanel(props: PanelHost): ReactNode {
   const [editing, setEditing] = useState<string | null>(null)
   const [editDescription, setEditDescription] = useState('')
   const [editBody, setEditBody] = useState('')
+  const [sending, setSending] = useState<string | null>(null)
+  const [sendVars, setSendVars] = useState<readonly string[]>([])
+  const [sendValues, setSendValues] = useState<Readonly<Record<string, string>>>({})
 
   const reload = useCallback(async (): Promise<void> => {
     try {
@@ -97,6 +103,35 @@ function PromptPanel(props: PanelHost): ReactNode {
     } finally {
       setBusy(false)
     }
+  }
+
+  /** 打开发送：无变量直接发，有变量展开填值表单。 */
+  async function openSend(target: string): Promise<void> {
+    setBusy(true)
+    setError('')
+    try {
+      const detail = await getPromptDetail(globalThis.fetch, target)
+      const variables = extractVariables(detail.body)
+      if (variables.length === 0) {
+        await submit(target, {})
+        return
+      }
+      setEditing(null)
+      setRenaming(null)
+      setSending(target)
+      setSendVars(variables)
+      setSendValues(Object.fromEntries(variables.map((name) => [name, ''])))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 经会话执行 /p send 行（与弹窗同一提交口）。 */
+  async function submit(target: string, values: Readonly<Record<string, string>>): Promise<void> {
+    const sessions = props.ctx.get('sessions') as Pick<ISessions, 'binding'> | undefined
+    await submitSendLine(sessions, props.scope.sessionId as SessionId, buildSendLine(target, values))
   }
 
   async function add(): Promise<void> {    const trimmedName = name.trim()
@@ -171,6 +206,12 @@ function PromptPanel(props: PanelHost): ReactNode {
                 </button>
                 <button
                   disabled={busy}
+                  onClick={() => void openSend(item.name)}
+                >
+                  发送
+                </button>
+                <button
+                  disabled={busy}
                   onClick={() => {
                     if (window.confirm(`删除提示词 ${item.name}？`)) void run(() => removePrompt(globalThis.fetch, item.name))
                   }}
@@ -205,6 +246,34 @@ function PromptPanel(props: PanelHost): ReactNode {
                   保存
                 </button>
                 <button disabled={busy} onClick={() => setEditing(null)}>取消</button>
+              </div>
+            </div>
+          )}
+          {sending === item.name && (
+            <div style={{ flexBasis: '100%', padding: '8px 0 4px 12px' }}>
+              {sendVars.map((variable) => (
+                <div key={variable} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <code style={{ minWidth: 80 }}>{variable}</code>
+                  <input
+                    style={input}
+                    value={sendValues[variable] ?? ''}
+                    disabled={busy}
+                    onChange={(e) => setSendValues({ ...sendValues, [variable]: e.currentTarget.value })}
+                    placeholder={`输入 ${variable}`}
+                  />
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  disabled={busy}
+                  onClick={() => void run(async () => {
+                    await submit(item.name, sendValues)
+                    setSending(null)
+                  })}
+                >
+                  提交发送
+                </button>
+                <button disabled={busy} onClick={() => setSending(null)}>取消</button>
               </div>
             </div>
           )}

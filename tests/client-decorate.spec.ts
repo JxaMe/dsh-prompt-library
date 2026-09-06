@@ -3,7 +3,7 @@ import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ClientSessionContext } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
-import { promptDecoration } from '../src/client/decorate.js'
+import { promptDecoration, submitSendLine } from '../src/client/decorate.js'
 
 /** 目录 fetch 桩。 */
 function stubFetch(payload: unknown) {
@@ -74,5 +74,11 @@ describe('promptDecoration onSelect', () => {
     const decoration = promptDecoration(sessions, stubFetch({ prompts: [] }))
     await expect(decoration.ui.onSelect({ id: 'deploy', label: 'deploy' }, session))
       .rejects.toThrow('宿主没有 /p 命令')
+  })
+})
+
+describe('submitSendLine', () => {
+  test('会话服务缺席直接抛', async () => {
+    await expect(submitSendLine(undefined, session.sessionId, '/p send x')).rejects.toThrow('会话尚未就绪')
   })
 })

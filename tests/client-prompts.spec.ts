@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { addPrompt, getPromptDetail, listPrompts, removePrompt, renamePrompt, updatePrompt } from '../src/client/prompts.js'
+import { addPrompt, buildSendLine, getPromptDetail, listPrompts, removePrompt, renamePrompt, updatePrompt } from '../src/client/prompts.js'
 
 /** 桩 fetch：状态与 JSON 体可配，收到的请求可查。 */
 function stubFetch(ok: boolean, payload: unknown, status = 200) {
@@ -114,5 +114,19 @@ describe('getPromptDetail', () => {
   test('形态不对抛错', async () => {
     const { fetchImpl } = stubFetch(true, { name: 'a' })
     await expect(getPromptDetail(fetchImpl, 'a')).rejects.toThrow()
+  })
+})
+
+describe('buildSendLine', () => {
+  test('无值只有命令', () => {
+    expect(buildSendLine('deploy', {})).toBe('/p send deploy')
+  })
+
+  test('有值拼 k=v，含空格自动加引号', () => {
+    expect(buildSendLine('review', { pr: '12', focus: '性能 安全' })).toBe('/p send review pr=12 focus="性能 安全"')
+  })
+
+  test('值含双引号直接拒绝（解析器 v1 无转义）', () => {
+    expect(() => buildSendLine('review', { focus: 'say "hi"' })).toThrow('must not contain double quotes')
   })
 })

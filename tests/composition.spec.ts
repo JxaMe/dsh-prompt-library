@@ -33,11 +33,12 @@ async function boot(root: string, pluginConfig: Record<string, unknown> = {}) {
     await ctx.plugin(promptManager, pluginConfig),
   ]
   const session = ctx.sessions.create(SessionId('s1'))
-  const agent = { id: session.id, session } as Agent
+  const sent: unknown[] = []
+  const agent = { id: session.id, session, followup: (message: unknown): void => { sent.push(message) } } as Agent
   await ctx.plugin(Object.assign((inner: Context) => { createScope(inner, agent) }, { inject: ['commands'] }))
   const execute = (line: string) => ctx.commands.execute(agent, line, [], new AbortController().signal)
   const dispose = async () => { for (const fiber of fibers.reverse()) await fiber.dispose() }
-  return { ctx, execute, dispose }
+  return { ctx, execute, dispose, sent }
 }
 
 describe('composition', () => {
@@ -62,5 +63,21 @@ describe('composition', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-prompt-'))
     roots.push(root)
     await expect(boot(root, { maxCount: 0 })).rejects.toThrow()
+  })
+
+  test('真执行模板发送：赋值渲染进模型消息', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-prompt-'))
+    roots.push(root)
+    const first = await boot(root)
+    await first.execute('/p add review 看 {{pr}}')
+    const execution = await first.execute('/p send review pr=12')
+    expect(execution?.result).toEqual({ kind: 'success', text: 'sent "review"' })
+    expect(first.sent).toHaveLength(1)
+    const content = (first.sent[0] as { content: readonly unknown[] }).content
+    expect(content).toEqual([{ type: 'text', text: '看 12' }])
+    const missing = await first.execute('/p send review')
+    expect(missing?.result?.kind).toBe('error')
+    expect(first.sent).toHaveLength(1)
+    await first.dispose()
   })
 })

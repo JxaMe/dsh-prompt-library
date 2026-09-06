@@ -20,8 +20,22 @@ describe('parsePromptArgs', () => {
   })
 
   test('send 带一个名称，缺参算错', () => {
-    expect(parsePromptArgs(' send deploy ')).toEqual({ kind: 'send', name: 'deploy' })
-    expect(parsePromptArgs(' send ')).toEqual({ kind: 'invalid', reason: 'usage: /p send <name>' })
+    expect(parsePromptArgs(' send deploy ')).toEqual({ kind: 'send', name: 'deploy', values: {} })
+    expect(parsePromptArgs(' send ')).toEqual({ kind: 'invalid', reason: 'usage: /p send <name> [key=value ...]' })
+  })
+
+  test('send 赋值按 k=v 切，双引号分组不断开', () => {
+    expect(parsePromptArgs(' send review pr=12 focus=安全 ')).toEqual({
+      kind: 'send', name: 'review', values: { pr: '12', focus: '安全' },
+    })
+    expect(parsePromptArgs(' send review focus="性能 安全" ')).toEqual({
+      kind: 'send', name: 'review', values: { focus: '性能 安全' },
+    })
+  })
+
+  test('send 赋值没等号或键非法都算错', () => {
+    expect(parsePromptArgs(' send review bare ')).toEqual({ kind: 'invalid', reason: 'usage: /p send <name> [key=value ...]' })
+    expect(parsePromptArgs(' send review bad-key=1 ')).toEqual({ kind: 'invalid', reason: 'usage: /p send <name> [key=value ...]' })
   })
 
   test('add 正文保留内部换行', () => {
@@ -44,6 +58,6 @@ describe('parsePromptArgs', () => {
   })
 
   test('未知子命令算错并给用法', () => {
-    expect(parsePromptArgs(' bogus ')).toEqual({ kind: 'invalid', reason: 'usage: /p list | show <name> | send <name> | add <name> <body> | rm <name> | rename <old> <new>' })
+    expect(parsePromptArgs(' bogus ')).toEqual({ kind: 'invalid', reason: 'usage: /p list | show <name> | send <name> [key=value ...] | add <name> <body> | rm <name> | rename <old> <new>' })
   })
 })

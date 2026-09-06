@@ -112,6 +112,21 @@ export interface PromptDetail extends PromptSummary {
   readonly body: string
 }
 
+/**
+ * 组装 /p send 命令行。值含空白自动加双引号；值含双引号直接拒绝
+ * （send 解析 v1 无转义，拼不出来的行不拼）。
+ * @param name - 提示词名称。
+ * @param values - 变量赋值。
+ * @returns 完整命令行。
+ */
+export function buildSendLine(name: string, values: Readonly<Record<string, string>>): string {
+  const parts = Object.entries(values).map(([key, value]) => {
+    if (value.includes('"')) throw new Error(`value of "${key}" must not contain double quotes`)
+    return /\s/.test(value) ? `${key}="${value}"` : `${key}=${value}`
+  })
+  return [`/p send ${name}`, ...parts].join(' ')
+}
+
 function isPromptDetail(data: unknown): data is PromptDetail {
   if (typeof data !== 'object' || data === null) return false
   const row = data as { name?: unknown; description?: unknown; body?: unknown }

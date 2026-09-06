@@ -1,7 +1,27 @@
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { CommandDecoration } from '@deepseek-ai/dsh-client-ui-commands/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { listPrompts } from './prompts.js'
 import type { FetchImpl } from './prompts.js'
+
+/**
+ * 提交一行 /p 命令给会话执行。会话缺席、提交失败、宿主无此命令全部抛错，
+ * 调用方（弹窗/面板）负责展示。
+ * @param sessions - 会话服务（可缺席，缺席即抛）。
+ * @param sessionId - 会话 id。
+ * @param line - 完整命令行。
+ */
+export async function submitSendLine(
+  sessions: Pick<ISessions, 'binding'> | undefined,
+  sessionId: SessionId,
+  line: string,
+): Promise<void> {
+  const live = sessions?.binding(sessionId)?.session
+  if (live === undefined) throw new Error('会话尚未就绪，请稍后再试')
+  const result = await live.command(line)
+  if (!result.ok) throw new Error(`发送失败：${result.error.message}`)
+  if (!result.value.matched) throw new Error('宿主没有 /p 命令，请确认插件已挂载')
+}
 
 /**
  * /p 的客户端装饰：裸调用弹提示词列表，选中即提交 `/p send` 执行。
@@ -28,11 +48,7 @@ export function promptDecoration(
         }))
       },
       onSelect: async (option, session) => {
-        const live = sessions.binding(session.sessionId)?.session
-        if (live === undefined) throw new Error('会话尚未就绪，请稍后再试')
-        const result = await live.command(`/p send ${option.id}`)
-        if (!result.ok) throw new Error(`发送失败：${result.error.message}`)
-        if (!result.value.matched) throw new Error('宿主没有 /p 命令，请确认插件已挂载')
+        await submitSendLine(sessions, session.sessionId, `/p send ${option.id}`)
       },
     },
   }
