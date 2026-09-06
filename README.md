@@ -34,7 +34,10 @@
 
 ```bash
 # 1. 安装进 web profile（会自动挂载，无需手改配置）
-pnpm dsh plugin --profile web add <包地址>
+pnpm dsh plugin --profile web add github:JxaMe/dsh-prompt-library
+
+# 如果 pnpm 拦了构建脚本（allowBuilds），按它打印的提示把那行加进
+# <profile>/pnpm-workspace.yaml 后重跑上面这条
 
 # 2. 重启生效（页面会断一下重连）
 dsh-web restart
