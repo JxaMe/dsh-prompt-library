@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { PROMPT_NAME_RE } from '../library.js'
+import { appendToDraft } from './draft.js'
+import type { DraftInput } from './draft.js'
 import { addPrompt, getPromptDetail, listPrompts, removePrompt, renamePrompt, updatePrompt } from './prompts.js'
 import type { PromptSummary } from './prompts.js'
 import type { PromptTabDescriptor } from './sidebar-faces.js'
+import type { PanelHost } from './sidebar-faces.js'
 
 /**
  * 提示词管理页：列表、新增、删除、改名。数据与 /p 同一个库，
@@ -23,7 +27,7 @@ export function promptTab(): PromptTabDescriptor {
 const row: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #8883' }
 const input: CSSProperties = { flex: 1, minWidth: 0, background: 'transparent', color: 'inherit', border: '1px solid #8885', borderRadius: 4, padding: '4px 8px', fontSize: 13 }
 
-function PromptPanel(): ReactNode {
+function PromptPanel(props: PanelHost): ReactNode {
   const [items, setItems] = useState<readonly PromptSummary[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -76,6 +80,25 @@ function PromptPanel(): ReactNode {
     }
   }
 
+  /** 双击行：把正文填进输入框草稿（只填不发）。按钮与输入区上的双击不触发。 */
+  async function insertRow(item: PromptSummary): Promise<void> {
+    setBusy(true)
+    setError('')
+    try {
+      const detail = await getPromptDetail(globalThis.fetch, item.name)
+      // get 的 string 重载返回 any，转一次即收敛到命名面（与 webServer 面同一处理）。
+      const sessions = props.ctx.get('sessions') as { scope(id: SessionId): unknown } | undefined
+      const conversation = props.ctx.get('conversation') as { input: { for(sessionScope: unknown): DraftInput } } | undefined
+      if (!appendToDraft({ sessions, conversation }, props.scope.sessionId as SessionId, detail.body)) {
+        setError('插入输入框失败：会话尚未就绪')
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function add(): Promise<void> {    const trimmedName = name.trim()
     if (!PROMPT_NAME_RE.test(trimmedName)) {
       setError('名称只允许小写字母、数字、横线、下划线，小写开头')
@@ -96,7 +119,15 @@ function PromptPanel(): ReactNode {
   return (
     <div style={{ padding: '0 12px 12px', fontSize: 13 }}>
       {items.map((item) => (
-        <div key={item.name} style={row}>
+        <div
+          key={item.name}
+          style={row}
+          title="双击插入到输入框"
+          onDoubleClick={(e) => {
+            if ((e.target as HTMLElement).closest('button,input,textarea')) return
+            void insertRow(item)
+          }}
+        >
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>{item.name}</div>
             {item.description !== '' && <div style={{ opacity: 0.7 }}>{item.description}</div>}

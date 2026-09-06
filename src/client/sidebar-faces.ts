@@ -7,13 +7,18 @@ import type { ReactNode } from 'react'
  * state/reducers 等实现依赖；注册形态是它文档化的公开消费契约，
  * 真机挂载验收时断言页签出现即对齐。
  */
+/** 面板宿主要求：能读服务（get），能认出当前会话（scope.sessionId）。侧边栏的 Tab props 天然满足。 */
+export interface PanelHost {
+  readonly ctx: { get(name: string): unknown }
+  readonly scope: { readonly sessionId: string }
+}
+
 export interface PromptTabDescriptor {
   readonly id: string
   readonly title: string
   readonly icon?: (size: number) => ReactNode
   readonly single?: boolean
-  /** 无参组件可赋给有参组件位（参数少永远兼容）。 */
-  readonly component: () => ReactNode
+  readonly component: (props: PanelHost) => ReactNode
 }
 
 /** 只一个 registerTab 的侧边栏服务面。 */
