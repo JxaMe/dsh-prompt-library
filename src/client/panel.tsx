@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { PROMPT_NAME_RE } from '../library.js'
-import { addPrompt, listPrompts, removePrompt, renamePrompt } from './prompts.js'
+import { addPrompt, getPromptDetail, listPrompts, removePrompt, renamePrompt, updatePrompt } from './prompts.js'
 import type { PromptSummary } from './prompts.js'
 import type { PromptTabDescriptor } from './sidebar-faces.js'
 
@@ -32,6 +32,9 @@ function PromptPanel(): ReactNode {
   const [body, setBody] = useState('')
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renameTo, setRenameTo] = useState('')
+  const [editing, setEditing] = useState<string | null>(null)
+  const [editDescription, setEditDescription] = useState('')
+  const [editBody, setEditBody] = useState('')
 
   const reload = useCallback(async (): Promise<void> => {
     try {
@@ -56,8 +59,24 @@ function PromptPanel(): ReactNode {
     }
   }
 
-  async function add(): Promise<void> {
-    const trimmedName = name.trim()
+  /** 打开编辑：先拉全文，再展开编辑区。失败只报错，不展开。 */
+  async function openEditor(target: string): Promise<void> {
+    setBusy(true)
+    setError('')
+    try {
+      const detail = await getPromptDetail(globalThis.fetch, target)
+      setRenaming(null)
+      setEditing(target)
+      setEditDescription(detail.description)
+      setEditBody(detail.body)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function add(): Promise<void> {    const trimmedName = name.trim()
     if (!PROMPT_NAME_RE.test(trimmedName)) {
       setError('名称只允许小写字母、数字、横线、下划线，小写开头')
       return
@@ -115,6 +134,12 @@ function PromptPanel(): ReactNode {
                 </button>
                 <button
                   disabled={busy}
+                  onClick={() => void openEditor(item.name)}
+                >
+                  编辑
+                </button>
+                <button
+                  disabled={busy}
                   onClick={() => {
                     if (window.confirm(`删除提示词 ${item.name}？`)) void run(() => removePrompt(globalThis.fetch, item.name))
                   }}
@@ -123,6 +148,35 @@ function PromptPanel(): ReactNode {
                 </button>
               </>
             )}
+          {editing === item.name && (
+            <div style={{ flexBasis: '100%', padding: '8px 0 4px 12px' }}>
+              <input
+                style={input}
+                value={editDescription}
+                disabled={busy}
+                onChange={(e) => setEditDescription(e.currentTarget.value)}
+                placeholder="说明"
+              />
+              <textarea
+                style={{ ...input, width: '100%', minHeight: 80, marginTop: 8, resize: 'vertical' }}
+                value={editBody}
+                disabled={busy}
+                onChange={(e) => setEditBody(e.currentTarget.value)}
+              />
+              <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                <button
+                  disabled={busy}
+                  onClick={() => void run(async () => {
+                    await updatePrompt(globalThis.fetch, item.name, { description: editDescription.trim(), body: editBody })
+                    setEditing(null)
+                  })}
+                >
+                  保存
+                </button>
+                <button disabled={busy} onClick={() => setEditing(null)}>取消</button>
+              </div>
+            </div>
+          )}
         </div>
       ))}
       <div style={{ ...row, borderBottom: 'none', marginTop: 8 }}>

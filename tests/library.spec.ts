@@ -96,6 +96,25 @@ describe('PromptLibrary', () => {
     expect((dup as PromptLibraryError).code).toBe('duplicate')
   })
 
+  test('改内容只换给定的字段', async () => {
+    const lib = library()
+    await lib.add({ name: 'deploy', description: '旧说明', body: '旧正文' })
+    await lib.update('deploy', { body: '新正文' })
+    expect(await lib.get('deploy')).toEqual({ name: 'deploy', description: '旧说明', body: '新正文' })
+    await lib.update('deploy', { description: '新说明', body: '又新' })
+    expect(await lib.get('deploy')).toEqual({ name: 'deploy', description: '新说明', body: '又新' })
+  })
+
+  test('改不存在的报缺，超长正文拒绝且不动旧值', async () => {
+    const lib = library()
+    const missing = await lib.update('ghost', { body: 'x' }).catch((error: unknown) => error)
+    expect((missing as PromptLibraryError).code).toBe('missing')
+    await lib.add({ name: 'deploy', description: '', body: '正文' })
+    const tooLong = await lib.update('deploy', { body: '正'.repeat(101) }).catch((error: unknown) => error)
+    expect((tooLong as PromptLibraryError).code).toBe('body-too-long')
+    expect(await lib.get('deploy')).toEqual({ name: 'deploy', description: '', body: '正文' })
+  })
+
   test('介质故障原样上抛，不包装成库错误', async () => {
     const broken: PromptVault = {
       get: () => Promise.reject(new Error('disk gone')),

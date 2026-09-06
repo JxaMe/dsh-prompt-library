@@ -92,3 +92,45 @@ export async function renamePrompt(fetchImpl: FetchImpl, from: string, to: strin
   }
   return (data as { name: string }).name
 }
+
+/**
+ * 改内容。description/body 给哪个换哪个。
+ * @param fetchImpl - 请求实现。
+ * @param name - 提示词名称。
+ * @param patch - 要换的字段。
+ */
+export async function updatePrompt(
+  fetchImpl: FetchImpl,
+  name: string,
+  patch: { description?: string; body?: string },
+): Promise<void> {
+  await postJson(fetchImpl, '/prompt-library/api/prompts/update', { name, ...patch })
+}
+
+/** 单条全文：编辑页打开时按需取。 */
+export interface PromptDetail extends PromptSummary {
+  readonly body: string
+}
+
+function isPromptDetail(data: unknown): data is PromptDetail {
+  if (typeof data !== 'object' || data === null) return false
+  const row = data as { name?: unknown; description?: unknown; body?: unknown }
+  return typeof row.name === 'string' && typeof row.description === 'string' && typeof row.body === 'string'
+}
+
+/**
+ * 取单条全文。
+ * @param fetchImpl - 请求实现。
+ * @param name - 提示词名称。
+ * @returns 名称、说明与正文。
+ */
+export async function getPromptDetail(fetchImpl: FetchImpl, name: string): Promise<PromptDetail> {
+  const response = await fetchImpl(`/prompt-library/api/prompts/${encodeURIComponent(name)}`)
+  if (!response.ok) {
+    const data = (await response.json()) as unknown
+    throw new Error(serverMessage(data) ?? `prompt detail request failed: ${response.status}`)
+  }
+  const data = (await response.json()) as unknown
+  if (!isPromptDetail(data)) throw new Error('prompt detail has an unexpected shape')
+  return data
+}

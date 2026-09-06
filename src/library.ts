@@ -53,6 +53,29 @@ export class PromptLibrary {
   }
 
   /**
+   * 改内容：只换给定的字段，其余原样保留。空 patch 不写库（读一次即返回）。
+   * 校验顺序：旧名存在、正文长度。
+   * @param name - 提示词名称。
+   * @param patch - 要换的字段（至少给一个）。
+   */
+  async update(name: string, patch: { description?: string; body?: string }): Promise<void> {
+    const current = await this.vault.get(name)
+    if (current === undefined) {
+      throw new PromptLibraryError('missing', `prompt "${name}" does not exist`)
+    }
+    const next = {
+      name,
+      description: patch.description ?? current.description,
+      body: patch.body ?? current.body,
+    }
+    if (next.body.length > this.limits.maxBodyChars) {
+      throw new PromptLibraryError('body-too-long', `prompt body is ${next.body.length} chars, limit is ${this.limits.maxBodyChars}`)
+    }
+    if (next.description === current.description && next.body === current.body) return
+    await this.vault.put(next)
+  }
+
+  /**
    * 改名。内容原样搬过去（delete + put，非原子——单用户场景够用）。
    * 校验顺序：新名形状、新名长度、旧名存在、新名未被占。
    * @param from - 旧名称。

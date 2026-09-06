@@ -5,9 +5,11 @@ import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { PromptLibrary } from '../src/library.js'
 import {
   answerPromptAdd,
+  answerPromptItem,
   answerPromptList,
   answerPromptRemove,
   answerPromptRename,
+  answerPromptUpdate,
   isTrustedRequest,
   readJsonBody,
   registerPromptRoutes,
@@ -102,14 +104,16 @@ describe('routePromptRequest', () => {
       .toEqual({ status: 200, body: { prompts: [{ name: 'deploy', description: '' }] } })
   })
 
-  test('非 GET 拒绝，其他路径 404', async () => {
+  test('单条子路径按名称查，写路径名也可作名称', async () => {
     const lib = library()
     expect(await routePromptRequest(lib, { method: 'POST', pathname: '/prompt-library/api/prompts' }))
       .toEqual({ status: 405, body: { error: 'method not allowed' } })
     expect(await routePromptRequest(lib, { method: 'GET', pathname: '/prompt-library/api/other' }))
       .toEqual({ status: 404, body: { error: 'not found' } })
     expect(await routePromptRequest(lib, { method: 'GET', pathname: '/prompt-library/api/prompts/deploy' }))
-      .toEqual({ status: 404, body: { error: 'not found' } })
+      .toEqual({ status: 404, body: { error: 'prompt "deploy" does not exist' } })
+    expect(await routePromptRequest(lib, { method: 'PUT', pathname: '/prompt-library/api/prompts/add' }))
+      .toEqual({ status: 405, body: { error: 'method not allowed' } })
   })
 
   test('POST 写路径分发到对应应答', async () => {
@@ -120,8 +124,44 @@ describe('routePromptRequest', () => {
       .toEqual({ status: 200, body: { name: 'b' } })
     expect(await routePromptRequest(lib, { method: 'POST', pathname: '/prompt-library/api/prompts/remove', body: { name: 'b' } }))
       .toEqual({ status: 200, body: { removed: true } })
-    expect(await routePromptRequest(lib, { method: 'GET', pathname: '/prompt-library/api/prompts/add' }))
-      .toEqual({ status: 405, body: { error: 'method not allowed' } })
+  })
+
+  test('POST 改内容路径分发', async () => {
+    const lib = library()
+    await lib.add({ name: 'a', description: '', body: '甲' })
+    expect(await routePromptRequest(lib, { method: 'POST', pathname: '/prompt-library/api/prompts/update', body: { name: 'a', body: '乙' } }))
+      .toEqual({ status: 200, body: { name: 'a' } })
+    expect(await lib.get('a')).toEqual({ name: 'a', description: '', body: '乙' })
+  })
+
+  test('GET 单条路径分发到全文', async () => {
+    const lib = library()
+    await lib.add({ name: 'a', description: '说明', body: '甲' })
+    expect(await routePromptRequest(lib, { method: 'GET', pathname: '/prompt-library/api/prompts/a' }))
+      .toEqual({ status: 200, body: { name: 'a', description: '说明', body: '甲' } })
+    expect(await routePromptRequest(lib, { method: 'GET', pathname: '/prompt-library/api/prompts/ghost' }))
+      .toEqual({ status: 404, body: { error: 'prompt "ghost" does not exist' } })
+    expect(await routePromptRequest(lib, { method: 'GET', pathname: '/prompt-library/api/prompts/%E0%A4%A' }))
+      .toEqual({ status: 400, body: { error: 'bad prompt name encoding' } })
+  })
+})
+
+describe('answerPromptUpdate', () => {
+  test('形态垃圾 400，一个字段不给也算垃圾', async () => {
+    const lib = library()
+    await lib.add({ name: 'a', description: '', body: '甲' })
+    expect(await answerPromptUpdate(lib, { name: 'a', body: 1 }))
+      .toEqual({ status: 400, body: { error: 'invalid update payload' } })
+    expect(await answerPromptUpdate(lib, { name: 'a' }))
+      .toEqual({ status: 400, body: { error: 'invalid update payload' } })
+    expect(await answerPromptUpdate(lib, null))
+      .toEqual({ status: 400, body: { error: 'invalid update payload' } })
+    expect(await lib.get('a')).toEqual({ name: 'a', description: '', body: '甲' })
+  })
+
+  test('旧名不在 404', async () => {
+    expect(await answerPromptUpdate(library(), { name: 'ghost', body: 'x' }))
+      .toEqual({ status: 404, body: { error: 'prompt "ghost" does not exist' } })
   })
 })
 

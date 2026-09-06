@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { addPrompt, listPrompts, removePrompt, renamePrompt } from '../src/client/prompts.js'
+import { addPrompt, getPromptDetail, listPrompts, removePrompt, renamePrompt, updatePrompt } from '../src/client/prompts.js'
 
 /** 桩 fetch：状态与 JSON 体可配，收到的请求可查。 */
 function stubFetch(ok: boolean, payload: unknown, status = 200) {
@@ -82,5 +82,37 @@ describe('renamePrompt', () => {
   test('服务端拒绝把原文抛出来', async () => {
     const { fetchImpl } = stubFetch(false, { error: 'prompt "a" does not exist' }, 404)
     await expect(renamePrompt(fetchImpl, 'a', 'b')).rejects.toThrow('prompt "a" does not exist')
+  })
+})
+
+describe('updatePrompt', () => {
+  test('POST 改内容', async () => {
+    const { fetchImpl, seen } = stubFetch(true, { name: 'deploy' })
+    await updatePrompt(fetchImpl, 'deploy', { body: '新正文' })
+    expect(seen[0]?.url).toBe('/prompt-library/api/prompts/update')
+    expect(JSON.parse(seen[0]?.init?.body as string)).toEqual({ name: 'deploy', body: '新正文' })
+  })
+
+  test('服务端拒绝把原文抛出来', async () => {
+    const { fetchImpl } = stubFetch(false, { error: 'prompt "ghost" does not exist' }, 404)
+    await expect(updatePrompt(fetchImpl, 'ghost', { body: 'x' })).rejects.toThrow('prompt "ghost" does not exist')
+  })
+})
+
+describe('getPromptDetail', () => {
+  test('正常返回全文', async () => {
+    const { fetchImpl, seen } = stubFetch(true, { name: 'a', description: '说明', body: '正文' })
+    expect(await getPromptDetail(fetchImpl, 'a')).toEqual({ name: 'a', description: '说明', body: '正文' })
+    expect(seen[0]?.url).toBe('/prompt-library/api/prompts/a')
+  })
+
+  test('落空把服务端原文抛出来', async () => {
+    const { fetchImpl } = stubFetch(false, { error: 'prompt "ghost" does not exist' }, 404)
+    await expect(getPromptDetail(fetchImpl, 'ghost')).rejects.toThrow('prompt "ghost" does not exist')
+  })
+
+  test('形态不对抛错', async () => {
+    const { fetchImpl } = stubFetch(true, { name: 'a' })
+    await expect(getPromptDetail(fetchImpl, 'a')).rejects.toThrow()
   })
 })

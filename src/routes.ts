@@ -91,6 +91,38 @@ export async function answerPromptRename(library: PromptLibrary, data: unknown):
   return { status: 200, body: { name: data.to } }
 }
 
+function isUpdatePayload(data: unknown): data is { name: string; description?: string; body?: string } {
+  if (typeof data !== 'object' || data === null) return false
+  const row = data as { name?: unknown; description?: unknown; body?: unknown }
+  if (typeof row.name !== 'string') return false
+  if (row.description !== undefined && typeof row.description !== 'string') return false
+  if (row.body !== undefined && typeof row.body !== 'string') return false
+  return row.description !== undefined || row.body !== undefined
+}
+
+/**
+ * 改内容。形态错 400；旧名不在 404；正文超长原文 400。
+ * @param library - 提示词库。
+ * @param data - 解析过的请求体（description/body 至少给一个）。
+ * @returns 200、400 或 404。
+ */
+export async function answerPromptUpdate(library: PromptLibrary, data: unknown): Promise<RouteAnswer> {
+  if (!isUpdatePayload(data)) return { status: 400, body: { error: 'invalid update payload' } }
+  const patch: { description?: string; body?: string } = {}
+  if (data.description !== undefined) patch.description = data.description
+  if (data.body !== undefined) patch.body = data.body
+  try {
+    await library.update(data.name, patch)
+  } catch (error) {
+    if (error instanceof PromptLibraryError) {
+      const status = error.code === 'missing' ? 404 : 400
+      return { status, body: { error: error.message } }
+    }
+    throw error
+  }
+  return { status: 200, body: { name: data.name } }
+}
+
 /** 路由前缀。handler 挂 prefix，前缀后全部交分发。 */
 export const PROMPT_API_PREFIX = '/prompt-library/api'
 
@@ -146,6 +178,21 @@ export function isTrustedRequest(host: string | undefined, trustedHosts: readonl
 }
 
 /**
+ * 单条提示词：含正文全文。编辑页打开时按需取，列表不带。
+ * @param library - 提示词库。
+ * @param name - 提示词名称。
+ * @returns 命中 200，不存在 404。
+ */
+export async function answerPromptItem(library: PromptLibrary, name: string): Promise<RouteAnswer> {
+  const record = await library.get(name)
+  if (record === undefined) return { status: 404, body: { error: `prompt "${name}" does not exist` } }
+  return {
+    status: 200,
+    body: { name: record.name, description: record.description, body: record.body },
+  }
+}
+
+/**
  * 纯分发：方法、路径与解析过的请求体进，应答出。
  * 读路径只认 GET 目录；写路径只认 POST；已知路径错方法 405，未知路径 404。
  * @param library - 提示词库。
@@ -157,18 +204,32 @@ export async function routePromptRequest(
   request: { method: string; pathname: string; body?: unknown },
 ): Promise<RouteAnswer> {
   const listPath = `${PROMPT_API_PREFIX}/prompts`
+  const itemPrefix = `${PROMPT_API_PREFIX}/prompts/`
   const addPath = `${PROMPT_API_PREFIX}/prompts/add`
   const removePath = `${PROMPT_API_PREFIX}/prompts/remove`
   const renamePath = `${PROMPT_API_PREFIX}/prompts/rename`
+  const updatePath = `${PROMPT_API_PREFIX}/prompts/update`
   if (request.pathname === listPath) {
     if (request.method !== 'GET') return { status: 405, body: { error: 'method not allowed' } }
     return answerPromptList(library)
   }
-  if (request.pathname === addPath || request.pathname === removePath || request.pathname === renamePath) {
+  if (request.method === 'GET' && request.pathname.startsWith(itemPrefix)) {
+    const encoded = request.pathname.slice(itemPrefix.length)
+    if (encoded === '' || encoded.includes('/')) return { status: 404, body: { error: 'not found' } }
+    let name: string
+    try {
+      name = decodeURIComponent(encoded)
+    } catch {
+      return { status: 400, body: { error: 'bad prompt name encoding' } }
+    }
+    return answerPromptItem(library, name)
+  }
+  if (request.pathname === addPath || request.pathname === removePath || request.pathname === renamePath || request.pathname === updatePath) {
     if (request.method !== 'POST') return { status: 405, body: { error: 'method not allowed' } }
     if (request.pathname === addPath) return answerPromptAdd(library, request.body)
     if (request.pathname === removePath) return answerPromptRemove(library, request.body)
-    return answerPromptRename(library, request.body)
+    if (request.pathname === renamePath) return answerPromptRename(library, request.body)
+    return answerPromptUpdate(library, request.body)
   }
   return { status: 404, body: { error: 'not found' } }
 }
