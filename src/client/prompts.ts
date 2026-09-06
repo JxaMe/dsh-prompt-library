@@ -60,8 +60,8 @@ export function sortSummaries(rows: readonly PromptSummary[]): PromptSummary[] {
  * @param fetchImpl - 请求实现，默认全局 fetch。
  * @returns 目录行数组。
  */
-export async function listPrompts(fetchImpl: FetchImpl = globalThis.fetch): Promise<readonly PromptSummary[]> {
-  const response = await fetchImpl('/prompt-library/api/prompts')
+export async function listPrompts(fetchImpl: FetchImpl = globalThis.fetch, init?: RequestInit): Promise<readonly PromptSummary[]> {
+  const response = await fetchImpl('/prompt-library/api/prompts', init)
   if (!response.ok) throw new Error(`prompt list request failed: ${response.status}`)
   const data = (await response.json()) as unknown
   if (!isPromptList(data)) throw new Error('prompt list has an unexpected shape')
@@ -159,8 +159,8 @@ function isPromptDetail(data: unknown): data is PromptDetail {
  * @param name - 提示词名称。
  * @returns 名称、说明与正文。
  */
-export async function getPromptDetail(fetchImpl: FetchImpl, name: string): Promise<PromptDetail> {
-  const response = await fetchImpl(`/prompt-library/api/prompts/${encodeURIComponent(name)}`)
+export async function getPromptDetail(fetchImpl: FetchImpl, name: string, init?: RequestInit): Promise<PromptDetail> {
+  const response = await fetchImpl(`/prompt-library/api/prompts/${encodeURIComponent(name)}`, init)
   if (!response.ok) {
     const data = (await response.json()) as unknown
     throw new Error(serverMessage(data) ?? `prompt detail request failed: ${response.status}`)
