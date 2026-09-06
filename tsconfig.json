@@ -15,5 +15,7 @@
     "types": ["node"],
     "lib": ["ES2022"]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"]
+  // 纯共享基：直接 typecheck 用 tsconfig.host.json / tsconfig.client.json
+  //（Host 与 Client 分属两个编译面，混编会把两边的 Context 扩展合并到一起）。
+  "include": []
 }

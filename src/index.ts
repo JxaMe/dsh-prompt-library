@@ -4,6 +4,8 @@ import type {} from '@deepseek-ai/dsh-storage-domain'
 import { buildPromptCommand } from './commands.js'
 import { Config } from './config.js'
 import { PromptLibrary } from './library.js'
+import { registerPromptRoutes } from './routes.js'
+import type { PromptRouteServer } from './routes.js'
 import { PROMPT_DOMAIN, DomainVault } from './vault-domain.js'
 
 export { Config }
@@ -32,4 +34,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.provide('prompts', library)
   ctx.effect(() => ctx.commands.register(buildPromptCommand(library)))
   ctx.effect(() => () => domain.close())
+  // 只读路由是有 web 栈才有的东西：headless 下这个 inject 永不触发，P0 不受影响。
+  // 受信列表每次请求现读，跟随 webRuntime 的最新值。
+  ctx.inject(['webServer', 'webRuntime'], (webCtx) => {
+    // webServer/webRuntime 归别的包所有，这里只按结构取用（get 的 string 重载返回 any，转一次即收敛到命名面）。
+    const webServer = webCtx.get('webServer') as PromptRouteServer
+    const trustedHosts = (): readonly string[] => {
+      const runtime = webCtx.get('webRuntime') as { trustedHosts?: readonly string[] } | undefined
+      return runtime?.trustedHosts ?? []
+    }
+    webCtx.effect(() => registerPromptRoutes(webServer, trustedHosts, library))
+  })
 }
