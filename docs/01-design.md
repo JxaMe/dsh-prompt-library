@@ -153,15 +153,15 @@ export function apply(ctx: Context, config: Config): void {
 - 有界：所有对外返回在完整值上计量（`list` 只返回名称+描述天然有界；`show` 受 `maxBodyChars` 约束；`options()` 全量拉取受 `maxCount` 约束）。
 - 无静默：`rm` 不存在、`add` 重名、`rename` 冲突全部明确 error，不存在“成功了但没生效”。
 
-## 9. 扩展点（留缝，不做）
+## 9. 扩展点（已做 vs 待做，2026-09-06 同步）
 
-| 未来需求 | 预留位置 | 代价说明 |
+已落地（当初留缝，现已实现）：变量模板（`src/template.ts` + `/p send k=v` + 面板发送表单）、管理面板（侧边栏 Tab：增删改名、原地改正文、双击进草稿）、选中发送（弹窗装饰）、无 sidebar 降级（可选依赖，干净环境验证过）。
+
+| 待做需求 | 预留位置 | 代价说明 |
 |---|---|---|
-| 变量模板 `{{var}}` | `store.ts` 旁新增 `template.ts`（纯函数渲染），`send`/插入前调用 | 不动存储和命令表，加一个渲染步骤 |
-| 导入导出 | `/p import <path>` / `/p export <path>` 两个子命令 | 解析表加两行，store 加批量写入（复用同一校验） |
-| 工作区级覆盖 | store 改为双层合并（全局打底 + cwd 覆盖，仿 skill 注册表裁决） | 存储 spec 升级 version，命令行为不变 |
-| 给模型用的 tool | 新包或本包内 `ctx.tools.register('prompt_get')` | 附带 snapshot 测试成本，独立决策 |
-| 管理面板 | 新 client slot 位或独立页 | 数据面不动，只加 Client |
+| 导入导出 | `/p import <path>` / `/p export <path>` 两个子命令 + 面板两个按钮 | 解析表加行，store 加批量写入（复用同一校验），面板复用现有 POST 口径 |
+| 工作区级覆盖 | store 改为双层合并（全局打底 + cwd 覆盖，仿 skill 注册表裁决） | 存储 spec 升级 version，需写迁移，命令行为不变 |
+| 给模型用的 tool | 本包内 `ctx.tools.register('prompt_get')` | 附带 snapshot 测试成本，独立决策 |
 | @提及触发 | `ui-input-trigger` 贡献 | 与 `/p` 共用 store + service |
 
 ## 10. 测试策略
