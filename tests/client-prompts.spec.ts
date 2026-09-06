@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { addPrompt, buildSendLine, getPromptDetail, listPrompts, removePrompt, renamePrompt, updatePrompt } from '../src/client/prompts.js'
+import { addPrompt, buildSendLine, getPromptDetail, listPrompts, removePrompt, renamePrompt, sortSummaries, updatePrompt } from '../src/client/prompts.js'
 
 /** 桩 fetch：状态与 JSON 体可配，收到的请求可查。 */
 function stubFetch(ok: boolean, payload: unknown, status = 200) {
@@ -16,9 +16,9 @@ function stubFetch(ok: boolean, payload: unknown, status = 200) {
 }
 
 describe('listPrompts', () => {
-  test('正常返回目录', async () => {
-    const { fetchImpl } = stubFetch(true, { prompts: [{ name: 'deploy', description: '说明' }] })
-    expect(await listPrompts(fetchImpl)).toEqual([{ name: 'deploy', description: '说明' }])
+  test('正常返回目录（含统计）', async () => {
+    const { fetchImpl } = stubFetch(true, { prompts: [{ name: 'deploy', description: '说明', useCount: 2, lastUsedAt: 1000 }] })
+    expect(await listPrompts(fetchImpl)).toEqual([{ name: 'deploy', description: '说明', useCount: 2, lastUsedAt: 1000 }])
   })
 
   test('HTTP 失败抛错并带状态码', async () => {
@@ -33,6 +33,27 @@ describe('listPrompts', () => {
     await expect(listPrompts(bad2.fetchImpl)).rejects.toThrow()
     const bad3 = stubFetch(true, null)
     await expect(listPrompts(bad3.fetchImpl)).rejects.toThrow()
+  })
+})
+
+describe('sortSummaries', () => {
+  test('用过按时间倒序，没用过按名称排最后', () => {
+    expect(sortSummaries([
+      { name: 'b', description: '', useCount: 0, lastUsedAt: null },
+      { name: 'a', description: '', useCount: 1, lastUsedAt: 100 },
+      { name: 'c', description: '', useCount: 5, lastUsedAt: 200 },
+      { name: 'aa', description: '', useCount: 0, lastUsedAt: null },
+    ]).map((row) => row.name)).toEqual(['c', 'a', 'aa', 'b'])
+  })
+
+  test('同时间按名称，不改原数组', () => {
+    const rows = [
+      { name: 'b', description: '', useCount: 1, lastUsedAt: 100 },
+      { name: 'a', description: '', useCount: 2, lastUsedAt: 100 },
+    ]
+    const sorted = sortSummaries(rows)
+    expect(sorted.map((row) => row.name)).toEqual(['a', 'b'])
+    expect(rows.map((row) => row.name)).toEqual(['b', 'a'])
   })
 })
 

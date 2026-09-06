@@ -7,7 +7,7 @@ import { extractVariables } from '../template.js'
 import { appendToDraft } from './draft.js'
 import type { DraftInput } from './draft.js'
 import { submitSendLine } from './decorate.js'
-import { addPrompt, buildSendLine, getPromptDetail, listPrompts, removePrompt, renamePrompt, updatePrompt } from './prompts.js'
+import { addPrompt, buildSendLine, getPromptDetail, listPrompts, removePrompt, renamePrompt, sortSummaries, updatePrompt } from './prompts.js'
 import type { PromptSummary } from './prompts.js'
 import type { PromptTabDescriptor } from './sidebar-faces.js'
 import type { PanelHost } from './sidebar-faces.js'
@@ -45,6 +45,16 @@ function PromptPanel(props: PanelHost): ReactNode {
   const [sending, setSending] = useState<string | null>(null)
   const [sendVars, setSendVars] = useState<readonly string[]>([])
   const [sendValues, setSendValues] = useState<Readonly<Record<string, string>>>({})
+  const [query, setQuery] = useState('')
+
+  /** 可见行：先按查询过滤（名称+说明，大小写不敏感），再按常用排序。 */
+  function visibleItems(): PromptSummary[] {
+    const q = query.trim().toLowerCase()
+    const filtered = q === ''
+      ? items
+      : items.filter((item) => item.name.toLowerCase().includes(q) || item.description.toLowerCase().includes(q))
+    return sortSummaries(filtered)
+  }
 
   const reload = useCallback(async (): Promise<void> => {
     try {
@@ -153,7 +163,14 @@ function PromptPanel(props: PanelHost): ReactNode {
 
   return (
     <div style={{ padding: '0 12px 12px', fontSize: 13 }}>
-      {items.map((item) => (
+      <input
+        style={{ ...input, width: '100%', marginBottom: 4 }}
+        value={query}
+        disabled={busy}
+        onChange={(e) => setQuery(e.currentTarget.value)}
+        placeholder="搜索名称或说明"
+      />
+      {visibleItems().map((item) => (
         <div
           key={item.name}
           style={row}

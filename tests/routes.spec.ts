@@ -15,7 +15,9 @@ import {
   registerPromptRoutes,
   routePromptRequest,
 } from '../src/routes.js'
+import { MemoryUsage } from './support/usage-memory.js'
 import { MemoryVault } from './support/vault-memory.js'
+import { UsageStats } from '../src/usage.js'
 
 function library() {
   return new PromptLibrary(new MemoryVault(), { maxNameLength: 64, maxBodyChars: 100, maxCount: 10 })
@@ -26,12 +28,24 @@ describe('answerPromptList', () => {
     expect(await answerPromptList(library())).toEqual({ status: 200, body: { prompts: [] } })
   })
 
-  test('只给名称和说明，不给正文', async () => {
+  test('只给名称和说明，不给正文；无统计就是 0/null', async () => {
     const lib = library()
     await lib.add({ name: 'deploy', description: '上线步骤', body: '秘密正文' })
     expect(await answerPromptList(lib)).toEqual({
       status: 200,
-      body: { prompts: [{ name: 'deploy', description: '上线步骤' }] },
+      body: { prompts: [{ name: 'deploy', description: '上线步骤', useCount: 0, lastUsedAt: null }] },
+    })
+  })
+
+  test('有统计带上次数与时间', async () => {
+    const lib = library()
+    await lib.add({ name: 'deploy', description: '', body: '正文' })
+    const usage = new UsageStats(new MemoryUsage(), () => 1000)
+    await usage.recordUse('deploy')
+    await usage.recordUse('deploy')
+    expect(await answerPromptList(lib, usage)).toEqual({
+      status: 200,
+      body: { prompts: [{ name: 'deploy', description: '', useCount: 2, lastUsedAt: 1000 }] },
     })
   })
 })
@@ -101,7 +115,7 @@ describe('routePromptRequest', () => {
     const lib = library()
     await lib.add({ name: 'deploy', description: '', body: '正文' })
     expect(await routePromptRequest(lib, { method: 'GET', pathname: '/prompt-library/api/prompts' }))
-      .toEqual({ status: 200, body: { prompts: [{ name: 'deploy', description: '' }] } })
+      .toEqual({ status: 200, body: { prompts: [{ name: 'deploy', description: '', useCount: 0, lastUsedAt: null }] } })
   })
 
   test('单条子路径按名称查，写路径名也可作名称', async () => {
@@ -255,7 +269,20 @@ describe('registerPromptRoutes', () => {
     const { res, status, json } = response()
     await routes[0]?.handler(request('GET', '/prompt-library/api/prompts', '127.0.0.1:3080'), res)
     expect(status()).toBe(200)
-    expect(json()).toEqual({ prompts: [{ name: 'deploy', description: '' }] })
+    expect(json()).toEqual({ prompts: [{ name: 'deploy', description: '', useCount: 0, lastUsedAt: null }] })
+  })
+
+  test('目录行带统计穿过整链', async () => {
+    const lib = library()
+    await lib.add({ name: 'deploy', description: '', body: '正文' })
+    const usage = new UsageStats(new MemoryUsage(), () => 1000)
+    await usage.recordUse('deploy')
+    const { routes, server } = stubServer()
+    registerPromptRoutes(server, () => [], lib, usage)
+    const { res, status, json } = response()
+    await routes[0]?.handler(request('GET', '/prompt-library/api/prompts', '127.0.0.1'), res)
+    expect(status()).toBe(200)
+    expect(json()).toEqual({ prompts: [{ name: 'deploy', description: '', useCount: 1, lastUsedAt: 1000 }] })
   })
 
   test('不信任的请求到不了库', async () => {

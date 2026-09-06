@@ -1,7 +1,7 @@
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { CommandDecoration } from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { listPrompts } from './prompts.js'
+import { listPrompts, sortSummaries } from './prompts.js'
 import type { FetchImpl } from './prompts.js'
 
 /**
@@ -41,7 +41,7 @@ export function promptDecoration(
       kind: 'popupSelect',
       options: async () => {
         const summaries = await listPrompts(fetchImpl)
-        return summaries.map((summary) => ({
+        return sortSummaries(summaries).map((summary) => ({
           id: summary.name,
           label: summary.name,
           detail: summary.description === '' ? undefined : summary.description,

@@ -10,17 +10,20 @@ export interface PromptRecord {
 
 /**
  * 持久边界口。生产实现包一层 storageDomain 的 KvTable，
- * 测试用内存实现。只做存取，不做校验——校验是 PromptLibrary 的事。
+ * 测试用内存实现。只做存取，不做校验——校验是拥有它的库的事。
  * 实现抛出的错原样上抛：库不翻译介质故障，挂载时坏文件由 open 直接
  * 拒绝（文件不动），运行中故障由命令执行器记 error 结算。
  */
-export interface PromptVault {
+export interface Vault<T extends { readonly name: string }> {
   /** 按名取一条，没有返回 undefined。 */
-  get(name: string): Promise<PromptRecord | undefined>
+  get(name: string): Promise<T | undefined>
   /** 存一条（新增或覆盖由调用方保证语义）。 */
-  put(record: PromptRecord): Promise<void>
+  put(record: T): Promise<void>
   /** 按名删一条，返回删之前是否存在。 */
   delete(name: string): Promise<boolean>
   /** 全量快照。 */
-  all(): Promise<readonly PromptRecord[]>
+  all(): Promise<readonly T[]>
 }
+
+/** 提示词表的 vault 口径。 */
+export type PromptVault = Vault<PromptRecord>

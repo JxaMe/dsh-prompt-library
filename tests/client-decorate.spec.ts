@@ -34,13 +34,26 @@ function stubSessions(command: (line: string) => unknown) {
 
 describe('promptDecoration options', () => {
   test('目录行转弹窗选项，无说明不带 detail', async () => {
-    const fetchImpl = stubFetch({ prompts: [{ name: 'b', description: '' }, { name: 'a', description: '说明' }] })
+    const fetchImpl = stubFetch({ prompts: [
+      { name: 'b', description: '', useCount: 0, lastUsedAt: null },
+      { name: 'a', description: '说明', useCount: 0, lastUsedAt: null },
+    ] })
     const decoration = promptDecoration(stubSessions(() => {}).sessions, fetchImpl)
     const options = await decoration.ui.options(session, new AbortController().signal)
     expect(options).toEqual([
-      { id: 'b', label: 'b', detail: undefined },
       { id: 'a', label: 'a', detail: '说明' },
+      { id: 'b', label: 'b', detail: undefined },
     ])
+  })
+
+  test('常用排前面', async () => {
+    const fetchImpl = stubFetch({ prompts: [
+      { name: 'b', description: '', useCount: 0, lastUsedAt: null },
+      { name: 'a', description: '', useCount: 3, lastUsedAt: 2000 },
+    ] })
+    const decoration = promptDecoration(stubSessions(() => {}).sessions, fetchImpl)
+    const options = await decoration.ui.options(session, new AbortController().signal)
+    expect(options.map((option) => option.id)).toEqual(['a', 'b'])
   })
 })
 

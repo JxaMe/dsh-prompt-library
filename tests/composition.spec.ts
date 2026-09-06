@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
@@ -63,6 +63,26 @@ describe('composition', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-prompt-'))
     roots.push(root)
     await expect(boot(root, { maxCount: 0 })).rejects.toThrow()
+  })
+
+  test('发送记使用统计，老文件无 usage 表照常打开', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-prompt-'))
+    roots.push(root)
+    // 手写 v1 文件（只有 prompts 表），断言新代码容忍缺表。
+    await writeFile(join(root, 'prompt_library.json'), JSON.stringify({
+      unit: { name: 'prompt_library', version: 1 },
+      global: null,
+      tables: { prompts: { legacy: { name: 'legacy', description: '', body: '旧正文' } } },
+    }))
+    const first = await boot(root)
+    expect((await first.execute('/p show legacy'))?.result)
+      .toEqual({ kind: 'success', text: '旧正文' })
+    await first.execute('/p send legacy')
+    await first.execute('/p send legacy')
+    const domain = first.ctx.storageDomain.get('prompt_library')
+    const usage = domain?.table('usage')?.get('legacy') as { count: number } | undefined
+    expect(usage?.count).toBe(2)
+    await first.dispose()
   })
 
   test('真执行模板发送：赋值渲染进模型消息', async () => {

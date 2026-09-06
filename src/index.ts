@@ -6,6 +6,7 @@ import { Config } from './config.js'
 import { PromptLibrary } from './library.js'
 import { registerPromptRoutes } from './routes.js'
 import type { PromptRouteServer } from './routes.js'
+import { UsageStats } from './usage.js'
 import { PROMPT_DOMAIN, DomainVault } from './vault-domain.js'
 
 export { Config }
@@ -31,10 +32,11 @@ export const inject = ['commands', 'storageDomain']
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const domain = await ctx.storageDomain.open(PROMPT_DOMAIN)
   const library = new PromptLibrary(new DomainVault(domain.table('prompts')), config)
+  const usage = new UsageStats(new DomainVault(domain.table('usage')), Date.now)
   ctx.provide('prompts', library)
-  ctx.effect(() => ctx.commands.register(buildPromptCommand(library)))
+  ctx.effect(() => ctx.commands.register(buildPromptCommand(library, usage)))
   ctx.effect(() => () => domain.close())
-  // 只读路由是有 web 栈才有的东西：headless 下这个 inject 永不触发，P0 不受影响。
+  // HTTP 路由是有 web 栈才有的东西：headless 下这个 inject 永不触发，命令不受影响。
   // 受信列表每次请求现读，跟随 webRuntime 的最新值。
   ctx.inject(['webServer', 'webRuntime'], (webCtx) => {
     // webServer/webRuntime 归别的包所有，这里只按结构取用（get 的 string 重载返回 any，转一次即收敛到命名面）。
@@ -43,6 +45,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       const runtime = webCtx.get('webRuntime') as { trustedHosts?: readonly string[] } | undefined
       return runtime?.trustedHosts ?? []
     }
-    webCtx.effect(() => registerPromptRoutes(webServer, trustedHosts, library))
+    webCtx.effect(() => registerPromptRoutes(webServer, trustedHosts, library, usage))
   })
 }

@@ -4,14 +4,30 @@ import type { PromptLibrary } from './library.js'
 import { PromptLibraryError } from './errors.js'
 import { PROMPT_USAGE, parsePromptArgs } from './parse.js'
 import { extractVariables, renderTemplate } from './template.js'
+import type { UsageStats } from './usage.js'
+
+/**
+ * 成功发送后记一次使用。统计是可丢的派生数据：记失败不翻转成功结果
+ * （主效果已发出，为统计报错只会诱使用户重发）。
+ */
+async function noteUsed(usage: UsageStats | undefined, name: string): Promise<void> {
+  if (usage === undefined) return
+  try {
+    await usage.recordUse(name)
+  } catch {
+    // 吞掉：recordUse 只碰 vault，能抛出来的只有介质故障；
+    // 使用统计是可丢的派生数据，不值得为它翻转已成功的发送。
+  }
+}
 
 /**
  * 注册给 ctx.commands 的 /p 定义。handler 是薄适配：
  * 解析原文，核心走 runPromptCommand，send 走 agent.followup。
  * @param library - 提示词库。
+ * @param usage - 使用统计（可选，不传不记）。
  * @returns 命令定义（注册即 effect，调用方持有 disposer）。
  */
-export function buildPromptCommand(library: PromptLibrary): CommandDefinition {
+export function buildPromptCommand(library: PromptLibrary, usage?: UsageStats): CommandDefinition {
   return {
     name: 'p',
     description: 'Manage saved prompts: list, show, send, add, remove and rename.',
@@ -19,6 +35,7 @@ export function buildPromptCommand(library: PromptLibrary): CommandDefinition {
     handler: async (invocation: CommandInvocation): Promise<CommandResult> => {
       return runPromptCommand(library, {
         rawInput: invocation.rawInput,
+        usage,
         send: (body) => {
           invocation.agent.followup(createUserMessage({
             content: [{ type: 'text', text: body }],
@@ -38,7 +55,7 @@ export function buildPromptCommand(library: PromptLibrary): CommandDefinition {
  */
 export async function runPromptCommand(
   library: PromptLibrary,
-  input: { rawInput: string; send: (body: string) => void },
+  input: { rawInput: string; send: (body: string) => void; usage?: UsageStats },
 ): Promise<CommandResult> {
   const command = parsePromptArgs(input.rawInput)
   if (command.kind === 'list') {
@@ -83,6 +100,7 @@ export async function runPromptCommand(
       const extra = Object.keys(command.values)
       if (extra.length > 0) return { kind: 'error', text: `prompt "${command.name}" takes no variables, got: ${extra.join(', ')}` }
       input.send(record.body)
+      await noteUsed(input.usage, command.name)
       return { kind: 'success', text: `sent "${command.name}"` }
     }
     const unknown = Object.keys(command.values).filter((key) => !variables.includes(key))
@@ -93,6 +111,7 @@ export async function runPromptCommand(
       return { kind: 'error', text: `missing variables for "${command.name}": ${rendered.missing.join(', ')}. usage: /p send ${command.name} ${hint}` }
     }
     input.send(rendered.text)
+    await noteUsed(input.usage, command.name)
     return { kind: 'success', text: `sent "${command.name}"` }
   }
   if (command.kind === 'invalid') return { kind: 'error', text: command.reason }

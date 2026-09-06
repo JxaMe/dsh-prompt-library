@@ -1,7 +1,9 @@
-/** 目录行：名称与说明。说明可空。 */
+/** 目录行：名称、说明与使用统计（没用过就是 0/null）。 */
 export interface PromptSummary {
   readonly name: string
   readonly description: string
+  readonly useCount: number
+  readonly lastUsedAt: number | null
 }
 
 /** 可注入的 fetch（测试打桩，生产用全局）。只用到 url + init 子集。 */
@@ -30,8 +32,26 @@ function isPromptList(data: unknown): data is { prompts: PromptSummary[] } {
   if (!Array.isArray(prompts)) return false
   return prompts.every((item): item is PromptSummary => {
     if (typeof item !== 'object' || item === null) return false
-    const row = item as { name?: unknown; description?: unknown }
-    return typeof row.name === 'string' && typeof row.description === 'string'
+    const row = item as { name?: unknown; description?: unknown; useCount?: unknown; lastUsedAt?: unknown }
+    return typeof row.name === 'string'
+      && typeof row.description === 'string'
+      && typeof row.useCount === 'number'
+      && (row.lastUsedAt === null || typeof row.lastUsedAt === 'number')
+  })
+}
+
+/**
+ * 常用优先排序：用过按最后使用倒序，没用过按名称排最后。不改原数组。
+ * @param rows - 目录行。
+ * @returns 新的排序数组。
+ */
+export function sortSummaries(rows: readonly PromptSummary[]): PromptSummary[] {
+  return [...rows].sort((a, b) => {
+    if (a.lastUsedAt === null && b.lastUsedAt === null) return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+    if (a.lastUsedAt === null) return 1
+    if (b.lastUsedAt === null) return -1
+    if (a.lastUsedAt !== b.lastUsedAt) return b.lastUsedAt - a.lastUsedAt
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
   })
 }
 

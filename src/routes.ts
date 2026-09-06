@@ -2,6 +2,7 @@ import type { IncomingMessage } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { PromptLibraryError } from './errors.js'
 import type { PromptLibrary } from './library.js'
+import type { UsageStats } from './usage.js'
 
 /** 应答：状态码与 JSON 体。handler 只负责搬到 res 上，不做业务判断。 */
 export interface RouteAnswer {
@@ -10,16 +11,24 @@ export interface RouteAnswer {
 }
 
 /**
- * 提示词目录：名称与说明的数组，不含正文（列表一次拉全，正文按需再取）。
+ * 提示词目录：名称、说明与使用统计的数组，不含正文（列表一次拉全，正文按需再取）。
+ * 形态固定：没统计就是 useCount 0、lastUsedAt null，客户端不用分支。
  * @param library - 提示词库。
+ * @param usage - 使用统计（可选，不传全零）。
  * @returns 200 与目录。
  */
-export async function answerPromptList(library: PromptLibrary): Promise<RouteAnswer> {
+export async function answerPromptList(library: PromptLibrary, usage?: UsageStats): Promise<RouteAnswer> {
   const all = await library.list()
-  return {
-    status: 200,
-    body: { prompts: all.map((record) => ({ name: record.name, description: record.description })) },
-  }
+  const prompts = await Promise.all(all.map(async (record) => {
+    const stat = await usage?.get(record.name)
+    return {
+      name: record.name,
+      description: record.description,
+      useCount: stat?.count ?? 0,
+      lastUsedAt: stat?.lastUsedAt ?? null,
+    }
+  }))
+  return { status: 200, body: { prompts } }
 }
 
 function isAddPayload(data: unknown): data is { name: string; description?: string; body: string } {
@@ -202,6 +211,7 @@ export async function answerPromptItem(library: PromptLibrary, name: string): Pr
 export async function routePromptRequest(
   library: PromptLibrary,
   request: { method: string; pathname: string; body?: unknown },
+  usage?: UsageStats,
 ): Promise<RouteAnswer> {
   const listPath = `${PROMPT_API_PREFIX}/prompts`
   const itemPrefix = `${PROMPT_API_PREFIX}/prompts/`
@@ -211,7 +221,7 @@ export async function routePromptRequest(
   const updatePath = `${PROMPT_API_PREFIX}/prompts/update`
   if (request.pathname === listPath) {
     if (request.method !== 'GET') return { status: 405, body: { error: 'method not allowed' } }
-    return answerPromptList(library)
+    return answerPromptList(library, usage)
   }
   if (request.method === 'GET' && request.pathname.startsWith(itemPrefix)) {
     const encoded = request.pathname.slice(itemPrefix.length)
@@ -243,16 +253,19 @@ export interface PromptRouteServer {
 }
 
 /**
- * 挂载只读路由。围栏先行：不信任的请求到不了分发，更碰不到库。
+ * 挂载提示词路由（目录读、单条读与增删改名写）。围栏先行：不信任的请求
+ * 到不了分发，更碰不到库。
  * @param webServer - 路由注册面。
  * @param trustedHosts - 每次请求现读的受信列表（跟随服务最新值）。
  * @param library - 提示词库。
+ * @param usage - 使用统计（可选，目录行带统计）。
  * @returns 注销函数。
  */
 export function registerPromptRoutes(
   webServer: PromptRouteServer,
   trustedHosts: () => readonly string[],
   library: PromptLibrary,
+  usage?: UsageStats,
 ): () => void {
   return webServer.register({
     kind: 'prefix',
@@ -276,7 +289,7 @@ export function registerPromptRoutes(
           return
         }
       }
-      const answer = await routePromptRequest(library, { method: req.method ?? 'GET', pathname, body })
+      const answer = await routePromptRequest(library, { method: req.method ?? 'GET', pathname, body }, usage)
       res.writeHead(answer.status, { 'content-type': 'application/json' })
       res.end(JSON.stringify(answer.body))
     },

@@ -2,7 +2,9 @@ import { describe, expect, test } from 'vitest'
 import { buildPromptCommand, runPromptCommand } from '../src/commands.js'
 import { PromptLibrary } from '../src/library.js'
 import { PROMPT_USAGE } from '../src/parse.js'
+import { UsageStats } from '../src/usage.js'
 import { followupRecorder, invocation } from './support/invocation.js'
+import { MemoryUsage } from './support/usage-memory.js'
 import { MemoryVault } from './support/vault-memory.js'
 
 function library() {
@@ -124,6 +126,31 @@ describe('runPromptCommand', () => {
       .toEqual({ kind: 'error', text: 'unknown variables for "review": fcous' })
     expect(await runPromptCommand(lib, { rawInput: ' send plain k=v ', send: () => {} }))
       .toEqual({ kind: 'error', text: 'prompt "plain" takes no variables, got: k' })
+  })
+
+  test('send 成功记一次使用', async () => {
+    const lib = library()
+    await lib.add({ name: 'deploy', description: '', body: '正文' })
+    const vault = new MemoryUsage()
+    const usage = new UsageStats(vault, () => 1000)
+    const result = await runPromptCommand(lib, { rawInput: ' send deploy ', send: () => {}, usage })
+    expect(result).toEqual({ kind: 'success', text: 'sent "deploy"' })
+    expect(await usage.get('deploy')).toEqual({ name: 'deploy', count: 1, lastUsedAt: 1000 })
+  })
+
+  test('统计记失败不翻转成功发送', async () => {
+    const lib = library()
+    await lib.add({ name: 'deploy', description: '', body: '正文' })
+    const broken = new UsageStats({
+      get: () => Promise.resolve(undefined),
+      put: () => Promise.reject(new Error('disk gone')),
+      delete: () => Promise.resolve(false),
+      all: () => Promise.resolve([]),
+    }, () => 0)
+    let sent = false
+    const result = await runPromptCommand(lib, { rawInput: ' send deploy ', send: () => { sent = true }, usage: broken })
+    expect(sent).toBe(true)
+    expect(result).toEqual({ kind: 'success', text: 'sent "deploy"' })
   })
 
   test('命令入口把 send 接到 agent.followup，消息内容为正文', async () => {
