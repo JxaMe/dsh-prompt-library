@@ -1,10 +1,15 @@
 import { describe, expect, test } from 'vitest'
+import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { PromptLibrary } from '../src/library.js'
 import {
+  answerPromptAdd,
   answerPromptList,
+  answerPromptRemove,
+  answerPromptRename,
   isTrustedRequest,
+  readJsonBody,
   registerPromptRoutes,
   routePromptRequest,
 } from '../src/routes.js'
@@ -29,6 +34,66 @@ describe('answerPromptList', () => {
   })
 })
 
+describe('answerPromptAdd', () => {
+  test('成功返回名称', async () => {
+    const lib = library()
+    expect(await answerPromptAdd(lib, { name: 'deploy', description: '说明', body: '正文' }))
+      .toEqual({ status: 200, body: { name: 'deploy' } })
+    expect(await lib.get('deploy')).toEqual({ name: 'deploy', description: '说明', body: '正文' })
+  })
+
+  test('形态垃圾直接 400，进不了库', async () => {
+    const lib = library()
+    for (const bad of [null, 'str', 42, {}, { name: 1, body: 'x' }, { name: 'a' }]) {
+      expect(await answerPromptAdd(lib, bad)).toEqual({ status: 400, body: { error: 'invalid prompt payload' } })
+    }
+    expect(await lib.list()).toEqual([])
+  })
+
+  test('库的拒绝原文返回 400', async () => {
+    const lib = library()
+    await lib.add({ name: 'deploy', description: '', body: '旧' })
+    expect(await answerPromptAdd(lib, { name: 'deploy', body: '新' }))
+      .toEqual({ status: 400, body: { error: 'prompt "deploy" already exists' } })
+    expect(await answerPromptAdd(lib, { name: 'Bad Name', body: 'x' }))
+      .toEqual({ status: 400, body: { error: 'invalid prompt name "Bad Name": use lowercase letters, digits, dash and underscore' } })
+  })
+})
+
+describe('answerPromptRemove', () => {
+  test('删掉返回真，删空 404，形态垃圾 400', async () => {
+    const lib = library()
+    await lib.add({ name: 'deploy', description: '', body: '正文' })
+    expect(await answerPromptRemove(lib, { name: 'deploy' })).toEqual({ status: 200, body: { removed: true } })
+    expect(await answerPromptRemove(lib, { name: 'deploy' })).toEqual({ status: 404, body: { error: 'prompt "deploy" does not exist' } })
+    expect(await answerPromptRemove(lib, { name: 1 })).toEqual({ status: 400, body: { error: 'invalid remove payload' } })
+    expect(await answerPromptRemove(lib, null)).toEqual({ status: 400, body: { error: 'invalid remove payload' } })
+  })
+})
+
+describe('answerPromptRename', () => {
+  test('成功返回新名', async () => {
+    const lib = library()
+    await lib.add({ name: 'deploy', description: '', body: '正文' })
+    expect(await answerPromptRename(lib, { from: 'deploy', to: 'release' }))
+      .toEqual({ status: 200, body: { name: 'release' } })
+    expect(await lib.get('release')).toEqual({ name: 'release', description: '', body: '正文' })
+  })
+
+  test('旧名不在 404，新名被占与形态垃圾 400', async () => {
+    const lib = library()
+    await lib.add({ name: 'b', description: '', body: '乙' })
+    expect(await answerPromptRename(lib, { from: 'a', to: 'c' }))
+      .toEqual({ status: 404, body: { error: 'prompt "a" does not exist' } })
+    expect(await answerPromptRename(lib, { from: 'b', to: 'b' }))
+      .toEqual({ status: 400, body: { error: 'prompt "b" already exists' } })
+    expect(await answerPromptRename(lib, { from: 'b' }))
+      .toEqual({ status: 400, body: { error: 'invalid rename payload' } })
+    expect(await answerPromptRename(lib, null))
+      .toEqual({ status: 400, body: { error: 'invalid rename payload' } })
+  })
+})
+
 describe('routePromptRequest', () => {
   test('目录路径分发到列表', async () => {
     const lib = library()
@@ -45,6 +110,37 @@ describe('routePromptRequest', () => {
       .toEqual({ status: 404, body: { error: 'not found' } })
     expect(await routePromptRequest(lib, { method: 'GET', pathname: '/prompt-library/api/prompts/deploy' }))
       .toEqual({ status: 404, body: { error: 'not found' } })
+  })
+
+  test('POST 写路径分发到对应应答', async () => {
+    const lib = library()
+    expect(await routePromptRequest(lib, { method: 'POST', pathname: '/prompt-library/api/prompts/add', body: { name: 'a', body: '甲' } }))
+      .toEqual({ status: 200, body: { name: 'a' } })
+    expect(await routePromptRequest(lib, { method: 'POST', pathname: '/prompt-library/api/prompts/rename', body: { from: 'a', to: 'b' } }))
+      .toEqual({ status: 200, body: { name: 'b' } })
+    expect(await routePromptRequest(lib, { method: 'POST', pathname: '/prompt-library/api/prompts/remove', body: { name: 'b' } }))
+      .toEqual({ status: 200, body: { removed: true } })
+    expect(await routePromptRequest(lib, { method: 'GET', pathname: '/prompt-library/api/prompts/add' }))
+      .toEqual({ status: 405, body: { error: 'method not allowed' } })
+  })
+})
+
+describe('readJsonBody', () => {
+  test('正常解析 JSON', async () => {
+    const req = Readable.from(['{"name":"a",', '"body":"甲"}']) as IncomingMessage
+    expect(await readJsonBody(req)).toEqual({ name: 'a', body: '甲' })
+  })
+
+  test('空体返回 undefined', async () => {
+    const req = Readable.from([]) as IncomingMessage
+    expect(await readJsonBody(req)).toBeUndefined()
+  })
+
+  test('坏 JSON 与超限抛错', async () => {
+    const bad = Readable.from(['{oops']) as IncomingMessage
+    await expect(readJsonBody(bad)).rejects.toThrow('invalid json body')
+    const big = Readable.from(['x'.repeat(300 * 1024)]) as IncomingMessage
+    await expect(readJsonBody(big)).rejects.toThrow('body too large')
   })
 })
 
@@ -82,8 +178,12 @@ function stubServer() {
   }
 }
 
-function request(method: string, url: string, host: string | undefined): IncomingMessage {
-  return { method, url, headers: { host } } as unknown as IncomingMessage
+function request(method: string, url: string, host: string | undefined, body = ''): IncomingMessage {
+  const req = Readable.from(body === '' ? [] : [body]) as unknown as Record<string, unknown>
+  req.method = method
+  req.url = url
+  req.headers = { host }
+  return req as unknown as IncomingMessage
 }
 
 function response() {

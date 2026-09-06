@@ -1,4 +1,8 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["src/client/**/*.ts", "tests/client-prompts.spec.ts", "tests/client-decorate.spec.ts"]
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["src/client/**/*.ts", "src/client/**/*.tsx", "tests/client-prompts.spec.ts", "tests/client-decorate.spec.ts"]
 }

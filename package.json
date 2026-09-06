@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-manager",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DSH user prompt library: save, list and send reusable prompts via /p",
   "type": "module",
   "main": "lib/index.js",
@@ -68,6 +68,8 @@
     "@deepseek-ai/dsh-typert-protocol": "0.1.2-rc.1",
     "@deepseek-ai/schemastery": "3.18.2",
     "@types/node": "^22.19.0",
+    "@types/react": "18.3.3",
+    "react": "18.3.1",
     "tsdown": "0.22.2",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
